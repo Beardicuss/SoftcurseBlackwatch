@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Softcurse.Shared\Softcurse.Shared.csproj" />
+    <ProjectReference Include="..\Softcurse.Core\Softcurse.Core.csproj" />
+    <ProjectReference Include="..\Softcurse.Monitor\Softcurse.Monitor.csproj" />
+    <ProjectReference Include="..\Softcurse.Cleaner\Softcurse.Cleaner.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\logo-Photoroom.png"/>
+  </ItemGroup>
+
+</Project>
