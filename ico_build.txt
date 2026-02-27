@@ -1,0 +1,29 @@
+﻿D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Program.cs(9,1): error CS0103: The name 'Console' does not exist in the current context [D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Png2Ico.csproj]
+D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Program.cs(14,20): error CS0246: The type or namespace name 'MemoryStream' could not be found (are you missing a using directive or an assembly reference?) [D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Png2Ico.csproj]
+D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Program.cs(15,20): error CS0246: The type or namespace name 'BinaryWriter' could not be found (are you missing a using directive or an assembly reference?) [D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Png2Ico.csproj]
+D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Program.cs(23,21): error CS0246: The type or namespace name 'List<>' could not be found (are you missing a using directive or an assembly reference?) [D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Png2Ico.csproj]
+D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Program.cs(35,27): error CS0246: The type or namespace name 'MemoryStream' could not be found (are you missing a using directive or an assembly reference?) [D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Png2Ico.csproj]
+D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Program.cs(54,1): error CS0103: The name 'File' does not exist in the current context [D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Png2Ico.csproj]
+D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Program.cs(55,1): error CS0103: The name 'Console' does not exist in the current context [D:\Projects\Softcurse Anticheat\SoftcurseSentinel\tools\Png2Ico\Png2Ico.csproj]
+dotnet : 
+At line:1 char:1
++ dotnet run --project
+ tools/Png2Ico/Png2Ico
+.csproj -- "Softcurse.
+UI\As ...
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (:String) [   
+ ], RemoteExceptio    
+n
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+The build failed. Fix 
+the build errors and r
+un again.

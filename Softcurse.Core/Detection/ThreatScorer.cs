@@ -1,3 +1,4 @@
+using Softcurse.Shared.Config;
 using Softcurse.Shared.Logging;
 using Softcurse.Shared.Models;
 
@@ -11,6 +12,7 @@ namespace Softcurse.Core.Detection;
 public class ThreatScorer
 {
     private readonly SentinelLogger _logger;
+    private readonly SentinelConfig _config;
     private readonly Dictionary<int, CpuTracker> _cpuTrackers = new();
 
     // ── Known Miner Process Names ──
@@ -41,6 +43,40 @@ public class ThreatScorer
         @"\AppData\Roaming\",
     };
 
+    // ── Known RAT / Trojan Process Names ──
+    private static readonly string[] RatPatterns =
+    {
+        "darkcomet", "njrat", "asyncrat", "quasar", "nanocore",
+        "remcos", "warzone", "orcus", "netwire", "adwind",
+        "poisonivy", "gh0st", "blackshades", "havoc", "cobalt",
+        "cobaltstrike", "meterpreter", "mimikatz", "lazagne",
+        "empire", "sliver", "brute", "rat", "keylog",
+    };
+
+    // ── Reverse Shell / Keylogger Command-Line Indicators ──
+    private static readonly string[] MaliciousCmdPatterns =
+    {
+        // Reverse shells
+        "reverse_tcp", "reverse_http", "reverse_https", "meterpreter",
+        "ncat -e", "nc.exe -e", "/bin/bash -i", "TCPClient",
+        "System.Net.Sockets", "Invoke-PowerShellTcp", "powercat",
+        // Encoded/obfuscated
+        "-encodedcommand", "-enc ", "frombase64string", "iex(",
+        "downloadstring", "invoke-expression", "invoke-webrequest",
+        "hidden -ep bypass", "-windowstyle hidden",
+        // Credential stealing
+        "sekurlsa", "logonpasswords", "lsadump", "hashdump",
+        "lazagne", "credential",
+    };
+
+    // ── Suspicious C2/RAT Ports ──
+    private static readonly HashSet<int> SuspiciousPorts = new()
+    {
+        4444, 5555, 1337, 1234, 6666, 7777,  // Common RAT defaults
+        8080, 8443, 443, 80,                   // C2 over HTTP/S
+        4443, 4445, 9090, 31337,               // Known C2 ports
+    };
+
     // ── Suspicious Parent-Child Chains ──
     // (e.g. cmd → svchost-lookalike)
     private static readonly HashSet<string> SuspiciousParents = new(StringComparer.OrdinalIgnoreCase)
@@ -61,9 +97,10 @@ public class ThreatScorer
         "dllhost", "dashost", "wmiprvse", "msdtc",
     };
 
-    public ThreatScorer(SentinelLogger logger)
+    public ThreatScorer(SentinelLogger logger, SentinelConfig? config = null)
     {
         _logger = logger;
+        _config = config ?? new SentinelConfig();
     }
 
     /// <summary>
@@ -71,6 +108,15 @@ public class ThreatScorer
     /// </summary>
     public ProcessInfo Score(ProcessInfo proc)
     {
+        // Whitelist bypass — skip scoring for excluded processes
+        if (_config.Whitelist.Any(w =>
+            proc.Name.Equals(w, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrEmpty(proc.FilePath) && proc.FilePath.Contains(w, StringComparison.OrdinalIgnoreCase))))
+        {
+            proc.Score = new ThreatScore();
+            return proc;
+        }
+
         var signals = new List<ThreatSignal>();
 
         // ── 1. Known Miner Name (+50) ──
@@ -153,7 +199,33 @@ public class ThreatScorer
             });
         }
 
-        // ── 6. Suspicious Parent Chain (+25) ──
+        // ── 6. Sustained High CPU (+35) ──
+        if (proc.CpuPercent > _config.CpuSpikeThresholdPercent && !KnownSystemProcesses.Contains(proc.Name))
+        {
+            if (!_cpuTrackers.TryGetValue(proc.Pid, out var tracker))
+            {
+                tracker = new CpuTracker();
+                _cpuTrackers[proc.Pid] = tracker;
+            }
+            tracker.Strikes++;
+            var elapsed = (DateTime.Now - tracker.FirstSeen).TotalSeconds;
+            if (elapsed >= _config.CpuSpikeDurationSeconds)
+            {
+                signals.Add(new ThreatSignal
+                {
+                    Name = "SustainedHighCpu",
+                    Description = $"CPU above {_config.CpuSpikeThresholdPercent}% for {elapsed:F0}s ({tracker.Strikes} samples)",
+                    Weight = 35,
+                    Category = SignalCategory.CpuBehavior
+                });
+            }
+        }
+        else
+        {
+            _cpuTrackers.Remove(proc.Pid);
+        }
+
+        // ── 7. Suspicious Parent Chain (+25) ──
         if (SuspiciousParents.Contains(proc.ParentName) && !KnownSystemProcesses.Contains(proc.Name))
         {
             signals.Add(new ThreatSignal
@@ -165,8 +237,7 @@ public class ThreatScorer
             });
         }
 
-        // ── 7. Name Impersonation (+35) ──
-        // e.g. "svchost_" or "csrss " trying to look like system processes
+        // ── 8. Name Impersonation (+35) ──
         foreach (var sysName in new[] { "svchost", "csrss", "winlogon", "lsass", "services" })
         {
             if (lower.Contains(sysName) && lower != sysName)
@@ -182,7 +253,7 @@ public class ThreatScorer
             }
         }
 
-        // ── 8. Very High Memory for Unknown Process (+15) ──
+        // ── 9. Very High Memory for Unknown Process (+15) ──
         if (proc.MemoryMB > 2048 && !KnownSystemProcesses.Contains(proc.Name))
         {
             signals.Add(new ThreatSignal
@@ -192,6 +263,56 @@ public class ThreatScorer
                 Weight = 15,
                 Category = SignalCategory.CpuBehavior
             });
+        }
+
+        // ── 10. Unsigned Executable in Suspicious Location (+15) ──
+        if (proc.IsSigned == false && !KnownSystemProcesses.Contains(proc.Name)
+            && !string.IsNullOrEmpty(proc.FilePath)
+            && SuspiciousPaths.Any(p => proc.FilePath.Contains(p, StringComparison.OrdinalIgnoreCase)))
+        {
+            signals.Add(new ThreatSignal
+            {
+                Name = "UnsignedExecutable",
+                Description = "Unsigned binary running from suspicious path",
+                Weight = 15,
+                Category = SignalCategory.Signature
+            });
+        }
+
+        // ── 11. Known RAT Name Match (+45) ──
+        foreach (var ratName in RatPatterns)
+        {
+            if (lower.Contains(ratName))
+            {
+                signals.Add(new ThreatSignal
+                {
+                    Name = "KnownRAT",
+                    Description = $"Process name matches known RAT/trojan: {ratName}",
+                    Weight = 45,
+                    Category = SignalCategory.ProcessName
+                });
+                break;
+            }
+        }
+
+        // ── 12. Malicious Command-Line (+40) ──
+        if (!string.IsNullOrEmpty(proc.CommandLine))
+        {
+            var cmdLower = proc.CommandLine.ToLowerInvariant();
+            foreach (var pattern in MaliciousCmdPatterns)
+            {
+                if (cmdLower.Contains(pattern))
+                {
+                    signals.Add(new ThreatSignal
+                    {
+                        Name = "MaliciousCommand",
+                        Description = $"Command line contains: {pattern}",
+                        Weight = 40,
+                        Category = SignalCategory.CommandLine
+                    });
+                    break;
+                }
+            }
         }
 
         proc.Score = new ThreatScore { Signals = signals };

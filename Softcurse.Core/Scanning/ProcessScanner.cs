@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Management;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using Softcurse.Shared.Logging;
 using Softcurse.Shared.Models;
 
@@ -12,10 +14,20 @@ namespace Softcurse.Core.Scanning;
 public class ProcessScanner
 {
     private readonly SentinelLogger _logger;
+    private readonly int _processorCount;
+
+    // CPU tracking: stores previous snapshot for delta calculation
+    private readonly Dictionary<int, CpuSnapshot> _cpuSnapshots = new();
+
+    // Hash cache: avoids re-hashing same file paths
+    private readonly Dictionary<string, (string Hash, bool Signed)> _hashCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private record CpuSnapshot(TimeSpan TotalCpu, DateTime MeasuredAt);
 
     public ProcessScanner(SentinelLogger logger)
     {
         _logger = logger;
+        _processorCount = Environment.ProcessorCount;
     }
 
     /// <summary>
@@ -41,8 +53,44 @@ public class ProcessScanner
                 try { info.FilePath = proc.MainModule?.FileName ?? string.Empty; }
                 catch { info.FilePath = string.Empty; }
 
+                // SHA256 hash + Authenticode signature (cached)
+                if (!string.IsNullOrEmpty(info.FilePath) && File.Exists(info.FilePath))
+                {
+                    try
+                    {
+                        if (_hashCache.TryGetValue(info.FilePath, out var cached))
+                        {
+                            info.FileHash = cached.Hash;
+                            info.IsSigned = cached.Signed;
+                        }
+                        else
+                        {
+                            info.FileHash = ComputeSha256(info.FilePath);
+                            info.IsSigned = VerifySignature(info.FilePath);
+                            _hashCache[info.FilePath] = (info.FileHash, info.IsSigned ?? false);
+                        }
+                    }
+                    catch { }
+                }
+
                 // Memory
                 try { info.MemoryMB = proc.WorkingSet64 / (1024.0 * 1024.0); }
+                catch { }
+
+                // CPU — delta calculation against previous snapshot
+                try
+                {
+                    var now = DateTime.UtcNow;
+                    var totalCpu = proc.TotalProcessorTime;
+                    if (_cpuSnapshots.TryGetValue(proc.Id, out var prev))
+                    {
+                        var cpuDelta = (totalCpu - prev.TotalCpu).TotalMilliseconds;
+                        var timeDelta = (now - prev.MeasuredAt).TotalMilliseconds;
+                        if (timeDelta > 0)
+                            info.CpuPercent = Math.Round(cpuDelta / (timeDelta * _processorCount) * 100, 1);
+                    }
+                    _cpuSnapshots[proc.Id] = new CpuSnapshot(totalCpu, now);
+                }
                 catch { }
 
                 // Thread count
@@ -78,6 +126,11 @@ public class ProcessScanner
                 proc.Dispose();
             }
         }
+
+        // Purge stale CPU snapshots for dead PIDs
+        var activePids = new HashSet<int>(result.Select(r => r.Pid));
+        foreach (var stale in _cpuSnapshots.Keys.Except(activePids).ToList())
+            _cpuSnapshots.Remove(stale);
 
         _logger.Debug("ProcessScanner", $"Scanned {result.Count} processes");
         return result.OrderByDescending(p => p.MemoryMB).ToList();
@@ -162,5 +215,29 @@ public class ProcessScanner
         public int ParentPid { get; init; }
         public string ParentName { get; init; } = string.Empty;
         public string ExecutablePath { get; init; } = string.Empty;
+    }
+
+    // ── SHA256 Hash ──
+    private static string ComputeSha256(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        var hash = SHA256.HashData(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    // ── Authenticode Signature Check ──
+    private static bool VerifySignature(string filePath)
+    {
+        try
+        {
+#pragma warning disable SYSLIB0057
+            var cert = X509Certificate2.CreateFromSignedFile(filePath);
+#pragma warning restore SYSLIB0057
+            return cert != null;
+        }
+        catch
+        {
+            return false; // Not signed or invalid signature
+        }
     }
 }

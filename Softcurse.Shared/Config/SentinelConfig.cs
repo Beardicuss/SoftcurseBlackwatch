@@ -28,6 +28,12 @@ public class SentinelConfig
     /// <summary>Process scan interval in milliseconds.</summary>
     public int ScanIntervalMs { get; set; } = 3000;
 
+    /// <summary>Whitelisted process names — excluded from threat scoring.</summary>
+    public List<string> Whitelist { get; set; } = new();
+
+    /// <summary>Minimize to system tray instead of closing.</summary>
+    public bool MinimizeToTray { get; set; } = true;
+
     // ── Persistence ──
 
     private static readonly string ConfigDir = Path.Combine(

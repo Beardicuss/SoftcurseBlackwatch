@@ -5,17 +5,19 @@ namespace Softcurse.Shared.Logging;
 
 /// <summary>
 /// Central logger for Softcurse Sentinel.
-/// Writes to file and keeps an in-memory buffer for the UI.
+/// Uses buffered StreamWriter for efficient file I/O.
 /// Thread-safe.
 /// </summary>
 public class SentinelLogger : IDisposable
 {
     private readonly string _logDirectory;
-    private readonly string _logFilePath;
     private readonly ConcurrentQueue<LogEntry> _buffer = new();
     private readonly int _maxBufferSize;
     private readonly object _fileLock = new();
+    private StreamWriter? _writer;
+    private string _currentLogDate;
     private bool _disposed;
+    private readonly Timer _flushTimer;
 
     public SentinelLogger(string? logDirectory = null, int maxBufferSize = 500)
     {
@@ -24,7 +26,11 @@ public class SentinelLogger : IDisposable
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "SoftcurseSentinel", "Logs");
         Directory.CreateDirectory(_logDirectory);
-        _logFilePath = Path.Combine(_logDirectory, $"sentinel_{DateTime.Now:yyyy-MM-dd}.log");
+        _currentLogDate = DateTime.Now.ToString("yyyy-MM-dd");
+        OpenWriter();
+
+        // Flush every 5 seconds
+        _flushTimer = new Timer(_ => FlushWriter(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
 
     public void Log(LogLevel level, string source, string message)
@@ -42,7 +48,7 @@ public class SentinelLogger : IDisposable
         while (_buffer.Count > _maxBufferSize)
             _buffer.TryDequeue(out _);
 
-        // Write to file
+        // Write to file (buffered)
         WriteToFile(entry);
     }
 
@@ -64,6 +70,12 @@ public class SentinelLogger : IDisposable
     public IReadOnlyList<LogEntry> GetBuffer(LogLevel minLevel)
         => _buffer.Where(e => e.Level >= minLevel).ToArray();
 
+    private void OpenWriter()
+    {
+        var logFilePath = Path.Combine(_logDirectory, $"sentinel_{_currentLogDate}.log");
+        _writer = new StreamWriter(logFilePath, append: true) { AutoFlush = false };
+    }
+
     private void WriteToFile(LogEntry entry)
     {
         if (_disposed) return;
@@ -72,7 +84,16 @@ public class SentinelLogger : IDisposable
             var line = $"[{entry.Timestamp:yyyy-MM-dd HH:mm:ss.fff}] [{entry.Level,-8}] [{entry.Source}] {entry.Message}";
             lock (_fileLock)
             {
-                File.AppendAllText(_logFilePath, line + Environment.NewLine);
+                // Roll to new file at midnight
+                var today = DateTime.Now.ToString("yyyy-MM-dd");
+                if (today != _currentLogDate)
+                {
+                    _writer?.Flush();
+                    _writer?.Dispose();
+                    _currentLogDate = today;
+                    OpenWriter();
+                }
+                _writer?.WriteLine(line);
             }
         }
         catch
@@ -81,9 +102,25 @@ public class SentinelLogger : IDisposable
         }
     }
 
+    private void FlushWriter()
+    {
+        if (_disposed) return;
+        lock (_fileLock)
+        {
+            try { _writer?.Flush(); } catch { }
+        }
+    }
+
     public void Dispose()
     {
         _disposed = true;
+        _flushTimer.Dispose();
+        lock (_fileLock)
+        {
+            _writer?.Flush();
+            _writer?.Dispose();
+            _writer = null;
+        }
         GC.SuppressFinalize(this);
     }
 }

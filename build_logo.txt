@@ -1,0 +1,14 @@
+﻿  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Softcurse.Shared -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Shared\bin\Debug\net9.0-windows\Softcurse.Shared.dll
+  Softcurse.Monitor -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Monitor\bin\Debug\net9.0-windows\Softcurse.Monitor.dll
+  Softcurse.Cleaner -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Cleaner\bin\Debug\net9.0-windows\Softcurse.Cleaner.dll
+  Softcurse.Core -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Core\bin\Debug\net9.0-windows\Softcurse.Core.dll
+  Softcurse.Service -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Service\bin\Debug\net9.0-windows\Softcurse.Service.dll
+  Softcurse.UI -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.UI\bin\Debug\net9.0-windows\Softcurse.UI.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.55

@@ -98,7 +98,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool DryRunMode
     {
         get => _dryRunMode;
-        set { _dryRunMode = value; _config.DryRunMode = value; OnPropertyChanged(); }
+        set { _dryRunMode = value; _config.DryRunMode = value; _config.Save(); OnPropertyChanged(); }
     }
 
     // ── Scan State (for animations) ──
@@ -115,11 +115,31 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private int _activeView;
     public int ActiveView { get => _activeView; set { _activeView = value; OnPropertyChanged(); } }
 
+    // ── Settings Properties ──
+    private bool _minimizeToTray;
+    public bool MinimizeToTray
+    {
+        get => _minimizeToTray;
+        set { _minimizeToTray = value; _config.MinimizeToTray = value; _config.Save(); OnPropertyChanged(); }
+    }
+
+    public ObservableCollection<string> WhitelistItems { get; } = new();
+
+    private string _whitelistInput = string.Empty;
+    public string WhitelistInput { get => _whitelistInput; set { _whitelistInput = value; OnPropertyChanged(); } }
+
+    public bool WhitelistEmpty => WhitelistItems.Count == 0;
+
+    public int CpuSpikeThreshold => _config.CpuSpikeThresholdPercent;
+    public int CpuSpikeDuration => _config.CpuSpikeDurationSeconds;
+
     // ── Commands (MVVM) ──
     public ICommand NavigateCommand { get; }
     public ICommand ScanNowCommand { get; }
     public ICommand KillProcessCommand { get; }
-    public ICommand PurgeThreatsCommand { get; }
+    public ICommand AddWhitelistCommand { get; }
+    public ICommand RemoveWhitelistCommand { get; }
+    public ICommand BrowseWhitelistCommand { get; }
 
     public MainViewModel()
     {
@@ -129,19 +149,26 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _config = SentinelConfig.Load();
         _logger = new SentinelLogger();
         _scanner = new ProcessScanner(_logger);
-        _scorer = new ThreatScorer(_logger);
+        _scorer = new ThreatScorer(_logger, _config);
         _systemMonitor = new SystemMonitor(_logger);
         _processWatcher = new ProcessWatcher(_logger);
         _networkMonitor = new NetworkMonitor(_logger);
         _cleaner = new SentinelCleaner(_logger, _config);
 
         _dryRunMode = _config.DryRunMode;
+        _minimizeToTray = _config.MinimizeToTray;
+
+        // Load whitelist from config
+        foreach (var item in _config.Whitelist)
+            WhitelistItems.Add(item);
 
         // Commands
         NavigateCommand = new RelayCommand<int>(idx => ActiveView = idx);
         ScanNowCommand = new RelayCommand(_ => _ = RunFullScanAsync());
         KillProcessCommand = new RelayCommand<int>(pid => ExecuteKill(pid));
-        PurgeThreatsCommand = new RelayCommand(_ => ExecutePurge());
+        AddWhitelistCommand = new RelayCommand(_ => ExecuteAddWhitelist());
+        RemoveWhitelistCommand = new RelayCommand<string>(name => ExecuteRemoveWhitelist(name));
+        BrowseWhitelistCommand = new RelayCommand(_ => ExecuteBrowseWhitelist());
 
         // Init history with zeros
         for (int i = 0; i < 60; i++)
@@ -246,19 +273,31 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             StatusText = "CORRELATING NETWORK ACTIVITY...";
             var conns = await Task.Run(() => _networkMonitor.GetConnections());
 
-            // Step 4: Update UI
+            // Step 4: Update UI (incremental — avoids flicker)
             StatusText = "UPDATING RESULTS...";
 
-            Processes.Clear();
+            // Diff processes: update existing, add new, remove stale
+            var procByPid = procs.ToDictionary(p => p.Pid);
+            for (int i = Processes.Count - 1; i >= 0; i--)
+            {
+                if (!procByPid.ContainsKey(Processes[i].Pid))
+                    Processes.RemoveAt(i);
+            }
+            var existingPids = new HashSet<int>(Processes.Select(p => p.Pid));
             foreach (var p in procs)
-                Processes.Add(p);
+            {
+                if (!existingPids.Contains(p.Pid))
+                    Processes.Add(p);
+            }
             ProcessCount = procs.Count;
 
+            // Diff threats
             Threats.Clear();
             foreach (var r in reports)
                 Threats.Add(r);
             ThreatCount = reports.Count(r => r.Score.Level >= ThreatLevel.Suspicious);
 
+            // Diff connections
             Connections.Clear();
             foreach (var c in conns)
                 Connections.Add(c);
@@ -297,27 +336,50 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             _ = RunFullScanAsync();
     }
 
-    private void ExecutePurge()
+    private void OnNewProcessCreated(object? sender, ProcessCreatedEventArgs e)
+    {
+        _logger.Info("ProcessWatcher", $"New process: {e.ProcessName} (PID {e.Pid})");
+
+        // Instant threat scoring for new processes (closes the 5-second gap)
+        Task.Run(() =>
+        {
+            try
+            {
+                var proc = System.Diagnostics.Process.GetProcessById(e.Pid);
+                var info = new ProcessInfo
+                {
+                    Pid = e.Pid,
+                    Name = e.ProcessName,
+                };
+                try { info.FilePath = proc.MainModule?.FileName ?? string.Empty; } catch { }
+                try { info.MemoryMB = proc.WorkingSet64 / (1024.0 * 1024.0); } catch { }
+                try { info.HasWindow = proc.MainWindowHandle != IntPtr.Zero; } catch { }
+                proc.Dispose();
+
+                _scorer.Score(info);
+
+                if (info.Score.Level >= ThreatLevel.Suspicious)
+                {
+                    _dispatcher.Invoke(() =>
+                    {
+                        Threats.Add(new ThreatReport { Process = info, Score = info.Score });
+                        ThreatCount = Threats.Count(t => t.Score.Level >= ThreatLevel.Suspicious);
+                        StatusText = $"⚠ NEW THREAT: {info.Name} (Score {info.Score.Total})";
+                    });
+                }
+            }
+            catch { /* process already exited */ }
+        });
+    }
+
+    /// <summary>Execute purge without MessageBox (called from JS confirm dialog)</summary>
+    public void ExecutePurgeForced()
     {
         var criticals = Threats
             .Where(t => t.Score.Level >= ThreatLevel.High)
             .ToList();
 
-        if (criticals.Count == 0)
-        {
-            _logger.Info("Sentinel", "Purge requested but no High/Critical threats found");
-            return;
-        }
-
-        var result = MessageBox.Show(
-            $"PURGE {criticals.Count} threats?\n\n" +
-            string.Join("\n", criticals.Select(t => $"  • {t.Process.Name} (Score: {t.Score.Total})")) +
-            $"\n\nMode: {(DryRunMode ? "DRY-RUN (no real action)" : "LIVE — PROCESSES WILL BE TERMINATED")}",
-            "SOFTCURSE SENTINEL — PURGE CONFIRMATION",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-
-        if (result != MessageBoxResult.Yes) return;
+        if (criticals.Count == 0) return;
 
         foreach (var threat in criticals)
         {
@@ -327,10 +389,56 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _logger.Threat("Sentinel", $"Purge executed: {criticals.Count} threats targeted");
         _ = RunFullScanAsync();
     }
+    // ═══════════════════════════════════════════════
+    // Whitelist Management
+    // ═══════════════════════════════════════════════
 
-    private void OnNewProcessCreated(object? sender, ProcessCreatedEventArgs e)
+    private void ExecuteAddWhitelist()
     {
-        _logger.Info("ProcessWatcher", $"New process: {e.ProcessName} (PID {e.Pid})");
+        var entry = WhitelistInput?.Trim();
+        if (string.IsNullOrEmpty(entry)) return;
+        if (WhitelistItems.Contains(entry, StringComparer.OrdinalIgnoreCase)) return;
+
+        WhitelistItems.Add(entry);
+        _config.Whitelist = WhitelistItems.ToList();
+        _config.Save();
+        WhitelistInput = string.Empty;
+        OnPropertyChanged(nameof(WhitelistEmpty));
+        _logger.Info("Settings", $"Added to whitelist: {entry}");
+    }
+
+    private void ExecuteRemoveWhitelist(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return;
+        WhitelistItems.Remove(name);
+        _config.Whitelist = WhitelistItems.ToList();
+        _config.Save();
+        OnPropertyChanged(nameof(WhitelistEmpty));
+        _logger.Info("Settings", $"Removed from whitelist: {name}");
+    }
+
+    private void ExecuteBrowseWhitelist()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Select Executable to Whitelist",
+            Filter = "Executables (*.exe)|*.exe|All files (*.*)|*.*",
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            var processName = System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
+            if (!string.IsNullOrEmpty(processName) &&
+                !WhitelistItems.Contains(processName, StringComparer.OrdinalIgnoreCase))
+            {
+                WhitelistItems.Add(processName);
+                _config.Whitelist = WhitelistItems.ToList();
+                _config.Save();
+                OnPropertyChanged(nameof(WhitelistEmpty));
+                _logger.Info("Settings", $"Added to whitelist via browse: {processName}");
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════

@@ -51,20 +51,20 @@ nunit-agent*
 
 # Output folders
 publish/
-publish_output/
+output/
+
+# React / Node
+Frontend/node_modules/
+Frontend/dist/
+Frontend/.vite/
+
+# WebUI build output (regenerated from Frontend/dist)
+Softcurse.UI/WebUI/
 
 # Temporary files
 *.swp
 *~
-ico_build.txt
-build_chart_fix.txt
-build_full.txt
-build_logo.txt
-run_final.txt
 
 # Converter tool build files
 tools/Png2Ico/bin/
 tools/Png2Ico/obj/
-
-# User logo file (if shared as attachment, avoid duplication if redundant)
-# logo with txt.png

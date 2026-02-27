@@ -7,16 +7,23 @@ namespace Softcurse.Monitor;
 
 /// <summary>
 /// Monitors system-wide CPU and Memory using PerformanceCounter + WMI.
-/// Stores samples for behavior analysis.
+/// Thread-safe history storage.
 /// </summary>
 public class SystemMonitor : IDisposable
 {
     private readonly PerformanceCounter _cpuCounter;
     private readonly SentinelLogger _logger;
+    private readonly object _historyLock = new();
     private readonly List<SystemSnapshot> _history = new();
     private readonly int _maxHistory;
 
-    public IReadOnlyList<SystemSnapshot> History => _history;
+    public IReadOnlyList<SystemSnapshot> History
+    {
+        get
+        {
+            lock (_historyLock) return _history.ToList();
+        }
+    }
 
     public SystemMonitor(SentinelLogger logger, int maxHistorySize = 120)
     {
@@ -27,7 +34,7 @@ public class SystemMonitor : IDisposable
     }
 
     /// <summary>
-    /// Takes a snapshot of current system resource usage.
+    /// Takes a snapshot of current system resource usage. Thread-safe.
     /// </summary>
     public SystemSnapshot GetSnapshot()
     {
@@ -58,9 +65,12 @@ public class SystemMonitor : IDisposable
             MemoryUsedMB = usedMemMB,
         };
 
-        _history.Add(snapshot);
-        if (_history.Count > _maxHistory)
-            _history.RemoveAt(0);
+        lock (_historyLock)
+        {
+            _history.Add(snapshot);
+            if (_history.Count > _maxHistory)
+                _history.RemoveAt(0);
+        }
 
         return snapshot;
     }

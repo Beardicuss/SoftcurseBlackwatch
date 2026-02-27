@@ -20,6 +20,8 @@ public class ProcessInfo
     public int ThreadCount { get; set; }
     public bool HasWindow { get; set; }
     public DateTime StartTime { get; set; }
+    public string FileHash { get; set; } = string.Empty;  // SHA256
+    public bool? IsSigned { get; set; }  // Authenticode: true=signed, false=unsigned, null=unknown
     public ThreatScore Score { get; set; } = new();
 }
 

@@ -1,0 +1,19 @@
+﻿  Determining projects to restore...
+  Restored D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Cleaner\Softcurse.Cleaner.csproj (in 73 ms).
+  Restored D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Shared\Softcurse.Shared.csproj (in 73 ms).
+  Restored D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Core\Softcurse.Core.csproj (in 121 ms).
+  Restored D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.UI\Softcurse.UI.csproj (in 121 ms).
+  Restored D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Monitor\Softcurse.Monitor.csproj (in 121 ms).
+  Restored D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Service\Softcurse.Service.csproj (in 1,5 sec).
+  Softcurse.Shared -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Shared\bin\Debug\net9.0-windows\Softcurse.Shared.dll
+  Softcurse.Cleaner -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Cleaner\bin\Debug\net9.0-windows\Softcurse.Cleaner.dll
+  Softcurse.Monitor -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Monitor\bin\Debug\net9.0-windows\Softcurse.Monitor.dll
+  Softcurse.Core -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Core\bin\Debug\net9.0-windows\Softcurse.Core.dll
+  Softcurse.Service -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.Service\bin\Debug\net9.0-windows\Softcurse.Service.dll
+  Softcurse.UI -> D:\Projects\Softcurse Anticheat\SoftcurseSentinel\Softcurse.UI\bin\Debug\net9.0-windows\Softcurse.UI.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:06.00

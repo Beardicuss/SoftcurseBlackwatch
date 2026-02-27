@@ -27,7 +27,7 @@ public class Worker : BackgroundService
         _config = SentinelConfig.Load();
         _logger = new SentinelLogger();
         _scanner = new ProcessScanner(_logger);
-        _scorer = new ThreatScorer(_logger);
+        _scorer = new ThreatScorer(_logger, _config);
         _processWatcher = new ProcessWatcher(_logger);
         _networkMonitor = new NetworkMonitor(_logger);
     }

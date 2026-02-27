@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hologram</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0A0A0A;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      font-family: 'Consolas', monospace;
+    }
+
+    /* Stars and nebula hidden — grid-plane serves as sidebar background */
+    .nebula,
+    .stars-container {
+      display: none;
+    }
+
+    .grid-plane {
+      position: absolute;
+      width: 200%;
+      height: 200%;
+      top: -50%;
+      left: -50%;
+      background-image:
+        linear-gradient(rgba(0, 255, 255, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 255, 0.08) 1px, transparent 1px);
+      background-size: 30px 30px;
+      transform: perspective(500px) rotateX(60deg);
+      transform-origin: center;
+      animation: grid-move 20s linear infinite;
+      opacity: 0.5;
+    }
+
+    @keyframes grid-move {
+      0% {
+        transform: perspective(500px) rotateX(60deg) translateY(0);
+      }
+
+      100% {
+        transform: perspective(500px) rotateX(60deg) translateY(30px);
+      }
+    }
+
+    .loader-container {
+      position: relative;
+      width: 180px;
+      height: 180px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      perspective: 800px;
+      transform-style: preserve-3d;
+      z-index: 10;
+    }
+
+    .hologram-platform {
+      position: absolute;
+      width: 140px;
+      height: 30px;
+      bottom: -40px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, rgba(0, 255, 255, 0.25) 0%, transparent 70%);
+      box-shadow: 0 0 25px rgba(0, 255, 255, 0.35);
+      transform: rotateX(60deg);
+      filter: blur(8px);
+      animation: platform-glow 4s infinite alternate;
+    }
+
+    .platform-rings {
+      position: absolute;
+      width: 140px;
+      height: 30px;
+      bottom: -40px;
+      transform: rotateX(60deg);
+    }
+
+    .platform-ring {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      opacity: 0.4;
+      animation: platform-ring-pulse 4s infinite alternate;
+    }
+
+    .platform-ring:nth-child(1) {
+      border-color: rgba(0, 255, 255, 0.4);
+      animation-delay: -1s;
+    }
+
+    .platform-ring:nth-child(2) {
+      width: 85%;
+      height: 85%;
+      top: 7.5%;
+      left: 7.5%;
+      border-color: rgba(255, 0, 255, 0.4);
+      animation-delay: -2s;
+    }
+
+    .platform-ring:nth-child(3) {
+      width: 70%;
+      height: 70%;
+      top: 15%;
+      left: 15%;
+      border-color: rgba(0, 255, 255, 0.4);
+      animation-delay: -3s;
+    }
+
+    @keyframes platform-ring-pulse {
+      0% {
+        transform: scale(1);
+        opacity: 0.2;
+      }
+
+      100% {
+        transform: scale(1.05);
+        opacity: 0.6;
+      }
+    }
+
+    @keyframes platform-glow {
+      0% {
+        box-shadow: 0 0 25px rgba(0, 255, 255, 0.35);
+        background: radial-gradient(ellipse, rgba(0, 255, 255, 0.25) 0%, transparent 70%);
+      }
+
+      100% {
+        box-shadow: 0 0 40px rgba(255, 0, 255, 0.5);
+        background: radial-gradient(ellipse, rgba(255, 0, 255, 0.25) 0%, transparent 70%);
+      }
+    }
+
+    .holo-container {
+      position: relative;
+      width: 100px;
+      height: 100px;
+      transform-style: preserve-3d;
+      animation: float-container 6s infinite ease-in-out;
+    }
+
+    @keyframes float-container {
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-12px);
+      }
+    }
+
+    .holo-sphere {
+      position: relative;
+      width: 90px;
+      height: 90px;
+      left: 5px;
+      top: 5px;
+      transform-style: preserve-3d;
+      animation: rotate 15s infinite linear;
+    }
+
+    .holo-ring {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      box-shadow: 0 0 12px rgba(255, 0, 255, 0.4), 0 0 12px rgba(0, 255, 255, 0.4);
+      filter: blur(1px);
+      animation: pulse 3s infinite ease-in-out alternate;
+      transform-style: preserve-3d;
+    }
+
+    .holo-ring:nth-child(1) {
+      border-top-color: #FF00FF;
+      border-bottom-color: #00FFFF;
+      animation-delay: -0.5s;
+    }
+
+    .holo-ring:nth-child(2) {
+      border-top-color: #00FFFF;
+      border-bottom-color: #FF00FF;
+      animation-delay: -1s;
+      transform: rotateX(60deg);
+    }
+
+    .holo-ring:nth-child(3) {
+      border-top-color: #FF00FF;
+      border-bottom-color: #00FFFF;
+      animation-delay: -1.5s;
+      transform: rotateY(60deg);
+    }
+
+    .holo-ring:nth-child(4) {
+      width: 90%;
+      height: 90%;
+      top: 5%;
+      left: 5%;
+      border-left-color: #00FFFF;
+      border-right-color: #FF00FF;
+      animation-delay: -2s;
+      transform: rotateZ(45deg);
+    }
+
+    .holo-ring:nth-child(5) {
+      width: 110%;
+      height: 110%;
+      top: -5%;
+      left: -5%;
+      border-left-color: #FF00FF;
+      border-right-color: #00FFFF;
+      animation-delay: -2.5s;
+      transform: rotateX(30deg) rotateY(30deg);
+    }
+
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 8px rgba(255, 0, 255, 0.3), 0 0 8px rgba(0, 255, 255, 0.3);
+      }
+
+      100% {
+        box-shadow: 0 0 20px rgba(255, 0, 255, 0.6), 0 0 20px rgba(0, 255, 255, 0.6);
+      }
+    }
+
+    .holo-particles {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+    }
+
+    .holo-particle {
+      position: absolute;
+      background: radial-gradient(circle, rgba(0, 255, 255, 0.9) 0%, transparent 70%);
+      border-radius: 50%;
+      filter: blur(1px);
+      opacity: 0;
+      transform-style: preserve-3d;
+      animation: particle-float 4s infinite ease-in-out;
+    }
+
+    .holo-particle:nth-child(1) {
+      width: 6px;
+      height: 6px;
+      top: 20%;
+      left: 30%;
+      animation-delay: 0.1s;
+    }
+
+    .holo-particle:nth-child(2) {
+      width: 4px;
+      height: 4px;
+      top: 70%;
+      left: 60%;
+      animation-delay: 0.7s;
+    }
+
+    .holo-particle:nth-child(3) {
+      width: 7px;
+      height: 7px;
+      top: 40%;
+      left: 80%;
+      animation-delay: 1.3s;
+    }
+
+    .holo-particle:nth-child(4) {
+      width: 3px;
+      height: 3px;
+      top: 80%;
+      left: 25%;
+      animation-delay: 1.9s;
+    }
+
+    .holo-particle:nth-child(5) {
+      width: 5px;
+      height: 5px;
+      top: 30%;
+      left: 50%;
+      animation-delay: 2.5s;
+    }
+
+    .holo-particle:nth-child(6) {
+      width: 6px;
+      height: 6px;
+      top: 60%;
+      left: 40%;
+      animation-delay: 3.1s;
+    }
+
+    .holo-particle:nth-child(7) {
+      width: 3px;
+      height: 3px;
+      top: 50%;
+      left: 75%;
+      animation-delay: 3.7s;
+    }
+
+    .holo-particle:nth-child(8) {
+      width: 5px;
+      height: 5px;
+      top: 25%;
+      left: 85%;
+      animation-delay: 4.3s;
+    }
+
+    .holo-particle:nth-child(9) {
+      width: 4px;
+      height: 4px;
+      top: 15%;
+      left: 45%;
+      animation-delay: 0.5s;
+    }
+
+    .holo-particle:nth-child(10) {
+      width: 5px;
+      height: 5px;
+      top: 75%;
+      left: 70%;
+      animation-delay: 1.1s;
+    }
+
+    .holo-particle:nth-child(11) {
+      width: 3px;
+      height: 3px;
+      top: 55%;
+      left: 20%;
+      animation-delay: 2.0s;
+    }
+
+    .holo-particle:nth-child(12) {
+      width: 6px;
+      height: 6px;
+      top: 35%;
+      left: 65%;
+      animation-delay: 2.8s;
+    }
+
+    @keyframes particle-float {
+
+      0%,
+      100% {
+        transform: translateZ(0) scale(0.8);
+        opacity: 0;
+      }
+
+      25% {
+        opacity: 1;
+        transform: translateZ(20px) translateX(8px) translateY(-8px) scale(1);
+      }
+
+      50% {
+        transform: translateZ(40px) translateX(15px) translateY(-15px) scale(1.2);
+        opacity: 0.8;
+      }
+
+      75% {
+        opacity: 0.4;
+        transform: translateZ(20px) translateX(8px) translateY(-8px) scale(1);
+      }
+    }
+
+    .projection-beams {
+      position: absolute;
+      width: 150px;
+      height: 150px;
+      bottom: -40px;
+      transform-style: preserve-3d;
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    .beam {
+      position: absolute;
+      width: 1px;
+      height: 120px;
+      background: linear-gradient(0deg, rgba(0, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0.3) 40%, transparent 100%);
+      bottom: 0;
+      transform-origin: bottom;
+      filter: blur(1px);
+      opacity: 0.7;
+    }
+
+    .beam:nth-child(1) {
+      left: 30%;
+      transform: rotateY(10deg) rotateX(-30deg);
+      animation: beam-flicker 4s infinite alternate;
+      animation-delay: 0.5s;
+    }
+
+    .beam:nth-child(2) {
+      left: 45%;
+      transform: rotateY(-5deg) rotateX(-25deg);
+      animation: beam-flicker 3s infinite alternate;
+      animation-delay: 1.5s;
+    }
+
+    .beam:nth-child(3) {
+      left: 55%;
+      transform: rotateY(5deg) rotateX(-25deg);
+      animation: beam-flicker 4s infinite alternate;
+      animation-delay: 0.7s;
+    }
+
+    .beam:nth-child(4) {
+      left: 70%;
+      transform: rotateY(-10deg) rotateX(-30deg);
+      animation: beam-flicker 3.5s infinite alternate;
+      animation-delay: 2s;
+    }
+
+    @keyframes beam-flicker {
+
+      0%,
+      100% {
+        opacity: 0.3;
+      }
+
+      50% {
+        opacity: 0.7;
+      }
+    }
+
+    .glitch-effect {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      opacity: 0;
+      animation: glitch 7s infinite;
+      pointer-events: none;
+      z-index: 12;
+      background: linear-gradient(45deg, rgba(255, 0, 255, 0.3) 0%, transparent 20%, rgba(0, 255, 255, 0.3) 40%, transparent 60%, rgba(255, 0, 255, 0.3) 80%, transparent 100%);
+    }
+
+    @keyframes glitch {
+
+      0%,
+      100% {
+        opacity: 0;
+      }
+
+      94%,
+      96% {
+        opacity: 0;
+      }
+
+      94.5% {
+        opacity: 0.8;
+        transform: translate(5px, -5px) skew(-5deg, 5deg);
+      }
+
+      95% {
+        opacity: 0.8;
+        transform: translate(-5px, 5px) skew(5deg, -5deg);
+      }
+
+      95.5% {
+        opacity: 0.8;
+        transform: translate(5px, 0) skew(-5deg, 0);
+      }
+    }
+
+    .lightning {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      filter: blur(1px);
+      transform-style: preserve-3d;
+      opacity: 0;
+      animation: lightning 5s infinite;
+      z-index: 11;
+    }
+
+    @keyframes lightning {
+
+      0%,
+      100% {
+        opacity: 0;
+      }
+
+      98% {
+        opacity: 0;
+      }
+
+      99% {
+        opacity: 0.8;
+        filter: brightness(3);
+      }
+    }
+
+    .lightning::before,
+    .lightning::after {
+      content: "";
+      position: absolute;
+      background: white;
+      filter: blur(1px);
+      box-shadow: 0 0 8px #00FFFF, 0 0 15px rgba(255, 255, 255, 0.6);
+    }
+
+    .lightning::before {
+      width: 2px;
+      height: 100%;
+      left: 50%;
+      transform: translateX(-50%) rotateY(90deg);
+      background: linear-gradient(180deg, rgba(0, 255, 255, 0) 0%, rgba(0, 255, 255, 0.8) 40%, white 50%, rgba(255, 0, 255, 0.8) 60%, rgba(255, 0, 255, 0) 100%);
+    }
+
+    .lightning::after {
+      width: 100%;
+      height: 2px;
+      top: 50%;
+      transform: translateY(-50%) rotateX(90deg);
+      background: linear-gradient(90deg, rgba(0, 255, 255, 0) 0%, rgba(0, 255, 255, 0.8) 40%, white 50%, rgba(255, 0, 255, 0.8) 60%, rgba(255, 0, 255, 0) 100%);
+    }
+
+    @keyframes rotate {
+      0% {
+        transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg);
+      }
+
+      100% {
+        transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg);
+      }
+    }
+
+    .code-lines {
+      position: absolute;
+      width: 200%;
+      height: 200%;
+      top: -50%;
+      left: -50%;
+      pointer-events: none;
+      perspective: 500px;
+      transform-style: preserve-3d;
+      z-index: 8;
+    }
+
+    .code-line {
+      position: absolute;
+      font-size: 7px;
+      color: rgba(0, 255, 255, 0.6);
+      white-space: nowrap;
+      text-shadow: 0 0 4px rgba(0, 255, 255, 0.25);
+      animation: code-scroll 15s infinite linear;
+      opacity: 0;
+    }
+
+    .code-line:nth-child(1) {
+      top: 10%;
+      animation-duration: 14s;
+      color: #00FFFF;
+    }
+
+    .code-line:nth-child(2) {
+      top: 20%;
+      animation-duration: 15s;
+      animation-delay: -1s;
+    }
+
+    .code-line:nth-child(3) {
+      top: 30%;
+      animation-duration: 16s;
+      animation-delay: -2s;
+      color: #FF00FF;
+    }
+
+    .code-line:nth-child(4) {
+      top: 40%;
+      animation-duration: 14s;
+      animation-delay: -3s;
+    }
+
+    .code-line:nth-child(5) {
+      top: 50%;
+      animation-duration: 10s;
+      animation-delay: -3s;
+    }
+
+    .code-line:nth-child(6) {
+      top: 60%;
+      animation-duration: 13s;
+      animation-delay: -7s;
+      color: #FF00FF;
+    }
+
+    .code-line:nth-child(7) {
+      top: 70%;
+      animation-duration: 11s;
+      animation-delay: -4s;
+    }
+
+    .code-line:nth-child(8) {
+      top: 80%;
+      animation-duration: 16s;
+      animation-delay: -9s;
+      color: #FF00FF;
+    }
+
+    @keyframes code-scroll {
+      0% {
+        transform: translateX(100px) rotateY(20deg);
+        opacity: 0;
+      }
+
+      10% {
+        opacity: 0.7;
+      }
+
+      90% {
+        opacity: 0.7;
+      }
+
+      100% {
+        transform: translateX(-200px) rotateY(20deg);
+        opacity: 0;
+      }
+    }
+
+    .holo-numbers {
+      position: absolute;
+      width: 180px;
+      height: 180px;
+      transform-style: preserve-3d;
+      perspective: 1000px;
+      pointer-events: none;
+    }
+
+    .number {
+      position: absolute;
+      font-size: 8px;
+      color: rgba(0, 255, 255, 0.7);
+      text-shadow: 0 0 4px rgba(0, 255, 255, 0.5);
+      animation: float-number 8s infinite linear;
+      opacity: 0;
+    }
+
+    @keyframes float-number {
+      0% {
+        opacity: 0;
+        transform: translateZ(50px) translateY(0);
+      }
+
+      10% {
+        opacity: 0.7;
+      }
+
+      90% {
+        opacity: 0.7;
+      }
+
+      100% {
+        opacity: 0;
+        transform: translateZ(-50px) translateY(-30px);
+      }
+    }
+
+    .radial-indicators {
+      position: absolute;
+      width: 140px;
+      height: 140px;
+      pointer-events: none;
+    }
+
+    .radial-indicator {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px dashed rgba(0, 255, 255, 0.4);
+      opacity: 0.3;
+      animation: radial-pulse 4s infinite alternate;
+    }
+
+    .radial-indicator:nth-child(1) {
+      width: 30px;
+      height: 30px;
+      top: calc(50% - 15px);
+      left: calc(50% - 15px);
+      animation-delay: 0.5s;
+    }
+
+    .radial-indicator:nth-child(2) {
+      width: 60px;
+      height: 60px;
+      top: calc(50% - 30px);
+      left: calc(50% - 30px);
+      animation-delay: 1s;
+    }
+
+    .radial-indicator:nth-child(3) {
+      width: 90px;
+      height: 90px;
+      top: calc(50% - 45px);
+      left: calc(50% - 45px);
+      animation-delay: 1.5s;
+    }
+
+    .radial-indicator:nth-child(4) {
+      width: 120px;
+      height: 120px;
+      top: calc(50% - 60px);
+      left: calc(50% - 60px);
+      animation-delay: 2s;
+    }
+
+    @keyframes radial-pulse {
+      0% {
+        transform: scale(1);
+        opacity: 0.2;
+        border-color: rgba(0, 255, 255, 0.4);
+      }
+
+      100% {
+        transform: scale(1.05);
+        opacity: 0.5;
+        border-color: rgba(255, 0, 255, 0.4);
+      }
+    }
+
+    .corner-decorations {
+      position: absolute;
+      width: 140px;
+      height: 140px;
+      pointer-events: none;
+    }
+
+    .corner {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-style: solid;
+      border-width: 2px;
+      border-color: rgba(0, 255, 255, 0.4);
+      animation: corner-pulse 3s infinite alternate;
+    }
+
+    .corner:nth-child(1) {
+      top: 0;
+      left: 0;
+      border-right: none;
+      border-bottom: none;
+    }
+
+    .corner:nth-child(2) {
+      top: 0;
+      right: 0;
+      border-left: none;
+      border-bottom: none;
+    }
+
+    .corner:nth-child(3) {
+      bottom: 0;
+      left: 0;
+      border-right: none;
+      border-top: none;
+    }
+
+    .corner:nth-child(4) {
+      bottom: 0;
+      right: 0;
+      border-left: none;
+      border-top: none;
+    }
+
+    @keyframes corner-pulse {
+      0% {
+        border-color: rgba(0, 255, 255, 0.4);
+        width: 12px;
+        height: 12px;
+      }
+
+      100% {
+        border-color: rgba(255, 0, 255, 0.4);
+        width: 18px;
+        height: 18px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="grid-plane"></div>
+  <div class="loader-container">
+    <div class="hologram-platform"></div>
+    <div class="platform-rings">
+      <div class="platform-ring"></div>
+      <div class="platform-ring"></div>
+      <div class="platform-ring"></div>
+    </div>
+
+    <div class="projection-beams">
+      <div class="beam"></div>
+      <div class="beam"></div>
+      <div class="beam"></div>
+      <div class="beam"></div>
+    </div>
+
+    <div class="holo-container">
+      <div class="holo-sphere">
+        <div class="holo-ring"></div>
+        <div class="holo-ring"></div>
+        <div class="holo-ring"></div>
+        <div class="holo-ring"></div>
+        <div class="holo-ring"></div>
+        <div class="holo-particles">
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+          <div class="holo-particle"></div>
+        </div>
+      </div>
+      <div class="glitch-effect"></div>
+      <div class="lightning"></div>
+    </div>
+
+    <div class="code-lines">
+      <div class="code-line">01001001 01001110 01001001 01010100</div>
+      <div class="code-line">initHolographicMatrix()</div>
+      <div class="code-line">01010011 01011001 01010011 01010100</div>
+      <div class="code-line">QuantumProcessor.init()</div>
+      <div class="code-line">01010010 01000101 01001110 01000100</div>
+      <div class="code-line">matrix = [1.2, 0.8, 3.1]</div>
+      <div class="code-line">01010000 01010010 01001111 01000011</div>
+      <div class="code-line">loadHolographicData()</div>
+    </div>
+
+    <div class="holo-numbers">
+      <div class="number" style="top:40%;left:30%;animation-delay:0.5s;">0xFF</div>
+      <div class="number" style="top:50%;left:60%;animation-delay:1.5s;">0x0A</div>
+      <div class="number" style="top:60%;left:40%;animation-delay:2.5s;">0xB4</div>
+      <div class="number" style="top:30%;left:50%;animation-delay:3.5s;">0x3D</div>
+      <div class="number" style="top:70%;left:20%;animation-delay:4.5s;">0xC2</div>
+      <div class="number" style="top:20%;left:70%;animation-delay:5.5s;">0x19</div>
+    </div>
+
+    <div class="radial-indicators">
+      <div class="radial-indicator"></div>
+      <div class="radial-indicator"></div>
+      <div class="radial-indicator"></div>
+      <div class="radial-indicator"></div>
+    </div>
+
+    <div class="corner-decorations">
+      <div class="corner"></div>
+      <div class="corner"></div>
+      <div class="corner"></div>
+      <div class="corner"></div>
+    </div>
+  </div>
+</body>
+
+</html>
