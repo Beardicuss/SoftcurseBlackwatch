@@ -2,6 +2,7 @@
 
 #define MyAppName "Softcurse Blackwatch"
 #define MyAppVersion "0.1.0-alpha"
+#define MyAppNumericVersion "0.1.0.0"
 #define MyAppPublisher "Softcurse Inc."
 #define MyAppExeName "Softcurse.Blackwatch.exe"
 
@@ -10,11 +11,11 @@ AppId={{7010568A-8183-410E-9E54-C9388DBE65F5}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-VersionInfoVersion=0.1.0.0
+VersionInfoVersion={#MyAppNumericVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion={#MyAppVersion}
+VersionInfoProductVersion={#MyAppNumericVersion}
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
