@@ -53,7 +53,10 @@ jobs:
         run: ./tools/Test-InstallerLifecycle.ps1 -InstallerPath ./output/SoftcurseBlackwatchSetup.exe
 
       - name: Attest release-candidate provenance
-        if: github.event_name != 'pull_request'
+        # GitHub does not support artifact attestations for user-owned private
+        # repositories. Keep provenance enabled automatically if the repository
+        # is made public later.
+        if: github.event_name != 'pull_request' && github.event.repository.private == false
         uses: actions/attest@v4
         with:
           subject-path: output/*
