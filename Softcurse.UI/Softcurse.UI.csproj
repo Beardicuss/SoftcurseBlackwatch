@@ -9,13 +9,14 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <AssemblyName>Softcurse.Blackwatch</AssemblyName>
+    <RootNamespace>Softcurse.UI</RootNamespace>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
@@ -26,12 +27,64 @@
     <Content Include="Assets\app.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="WebUI\**">
+    <Content Include="Assets\blackwatch-logo.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
+    <EmbeddedResource Include="$(IntermediateOutputPath)webui.sha256" LogicalName="Softcurse.UI.WebUI.sha256" />
   </ItemGroup>
+
+  <ItemGroup>
+    <_FrontendSource Include="$(MSBuildProjectDirectory)\..\Frontend\src\**\*;$(MSBuildProjectDirectory)\..\Frontend\public\**\*;$(MSBuildProjectDirectory)\..\Frontend\package.json;$(MSBuildProjectDirectory)\..\Frontend\package-lock.json;$(MSBuildProjectDirectory)\..\Frontend\vite.config.*;$(MSBuildProjectDirectory)\..\Frontend\index.html" />
+  </ItemGroup>
+
+  <Target Name="BuildFrontend"
+          BeforeTargets="PrepareForBuild"
+          Inputs="@(_FrontendSource)"
+          Outputs="$(BaseIntermediateOutputPath)frontend.buildstamp"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(MSBuildProjectDirectory)\..\Frontend" />
+    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)\..\Frontend" />
+    <RemoveDir Directories="$(MSBuildProjectDirectory)\WebUI" />
+    <MakeDir Directories="$(MSBuildProjectDirectory)\WebUI" />
+    <ItemGroup>
+      <_FrontendDist Include="$(MSBuildProjectDirectory)\..\Frontend\dist\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_FrontendDist)"
+          DestinationFiles="@(_FrontendDist->'$(MSBuildProjectDirectory)\WebUI\%(RecursiveDir)%(Filename)%(Extension)')" />
+    <MakeDir Directories="$(BaseIntermediateOutputPath)" />
+    <Touch Files="$(BaseIntermediateOutputPath)frontend.buildstamp" AlwaysCreate="true" />
+  </Target>
+
+  <!-- Vite filenames contain content hashes. Enumerate them only after the
+       synchronized build has completed so MSBuild never retains stale names. -->
+  <Target Name="CollectWebUiContent"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="BuildFrontend"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <Content Include="$(MSBuildProjectDirectory)\WebUI\**\*"
+               CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="GenerateWebUiIntegrityManifest" BeforeTargets="PrepareResources" DependsOnTargets="BuildFrontend">
+    <ItemGroup>
+      <_WebUiIntegrityFile Include="$(MSBuildProjectDirectory)\WebUI\**\*" />
+      <_WebUiIntegrityFile Update="@(_WebUiIntegrityFile)">
+        <IntegrityRelativePath>$([MSBuild]::MakeRelative('$(MSBuildProjectDirectory)\WebUI', '%(FullPath)'))</IntegrityRelativePath>
+      </_WebUiIntegrityFile>
+    </ItemGroup>
+    <Error Condition="'@(_WebUiIntegrityFile)' == ''" Text="WebUI integrity manifest cannot be generated because WebUI is empty." />
+    <GetFileHash Files="@(_WebUiIntegrityFile)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="_HashedWebUiFile" />
+    </GetFileHash>
+    <ItemGroup>
+      <_WebUiIntegrityLine Include="@(_HashedWebUiFile->'%(FileHash)|%(IntegrityRelativePath)')" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)webui.sha256" Lines="@(_WebUiIntegrityLine)" Overwrite="true" Encoding="UTF-8" />
+  </Target>
 
 </Project>

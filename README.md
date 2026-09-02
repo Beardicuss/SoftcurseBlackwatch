@@ -1,8 +1,10 @@
-# Softcurse Sentinel
+# Softcurse Blackwatch
 
-![Softcurse Sentinel Banner](Softcurse.UI/Assets/logo%20with%20txt.png)
+![Softcurse Blackwatch](Softcurse.UI/Assets/blackwatch-logo.png)
 
-**Softcurse Sentinel** is a high-performance, visually stunning anti-cheat and system monitoring solution for Windows. Built with a "Cyberpunk-Industrial" aesthetic, it combines military-grade monitoring with a fluid, modern user interface powered by React and WebView2.
+**Softcurse Blackwatch** is a local process and network monitoring application for Windows home users. It presents explainable heuristic evidence for review; it is not a replacement for Windows Defender or an enterprise endpoint-protection platform.
+
+> **Release status: 0.1.0 Early Alpha / Home Preview.** This build is for evaluation and feedback. It is unsigned, incomplete, and should be used alongside Microsoft Defender—not as a replacement antivirus.
 
 ## ✨ Key Features
 
@@ -13,9 +15,9 @@
 
 ### 🛡️ Security & Detection
 - **Automated Scanning:** Background scan every 5 seconds with step-by-step status (Enumeration → Analysis → Network Correlation).
-- **Instant Threat Scoring:** New processes are scored immediately via WMI watcher (closes the 5-second scan gap).
-- **One-Click Purge:** Terminate all high-severity threats with a single command (with dry-run safety mode).
-- **Process Whitelist:** Exclude trusted processes from threat scoring via manual entry or file browser.
+- **Event-Triggered Scanning:** New-process events request a guarded scan without racing the active scoring cycle.
+- **Confirmed Purge:** Terminate high-severity threats only after native consent, target identity verification, and journaled authorization (with dry-run safety mode).
+- **Trusted Applications:** Exact executable identities are bound to canonical path, SHA-256, and publisher certificate when available.
 
 ### 🌐 Network & Process Visibility
 - **Network Monitor:** Real-time TCP connection tracking with suspicious activity flagging and process ownership.
@@ -31,9 +33,9 @@
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | React 18 + TypeScript + Vite |
+| **Frontend** | React 19 + TypeScript 5.9 + Vite 8 |
 | **UI Framework** | TailwindCSS + Framer Motion |
-| **Desktop Shell** | WPF (.NET 9) + WebView2 |
+| **Desktop Shell** | WPF (.NET 10 LTS) + WebView2 |
 | **Architecture** | MVVM (ViewModel) + JS Bridge |
 | **Monitoring** | WMI / System.Diagnostics / PerformanceCounter |
 | **Logging** | Buffered StreamWriter with auto-rotation |
@@ -42,7 +44,7 @@
 ## 📁 Project Structure
 
 ```
-SoftcurseSentinel/
+SoftcurseBlackwatch/
 ├── Softcurse.UI/           # WPF shell + WebView2 host
 │   ├── MainWindow.xaml.cs  # WebView2 init, data push, command handling
 │   ├── ViewModels/         # MVVM ViewModel (scanning, monitoring, settings)
@@ -62,8 +64,9 @@ SoftcurseSentinel/
 ## 🚀 Getting Started
 
 ### Prerequisites
-- .NET 9.0 SDK
-- Node.js 18+ (for frontend development)
+- .NET 10.0.400 SDK (pinned by `global.json`)
+- .NET 8 runtime for the pinned Microsoft SBOM build tool
+- Node.js 24.18.0 LTS (pinned by `.nvmrc`)
 - Windows 10/11 (x64)
 - WebView2 Runtime (bundled with Windows 11, [download for Windows 10](https://developer.microsoft.com/en-us/microsoft-edge/webview2/))
 
@@ -71,41 +74,36 @@ SoftcurseSentinel/
 
 1. **Clone the repository:**
    ```powershell
-   git clone https://github.com/Beardicuss/SoftcurseSentinel.git
-   cd SoftcurseSentinel
+   git clone https://github.com/Beardicuss/SoftcurseBlackwatch.git
+   cd SoftcurseBlackwatch
    ```
 
-2. **Build the React frontend:**
+2. **Restore and build:**
    ```powershell
-   cd Frontend
-   npm install
-   npx vite build
+   npm ci --prefix Frontend
+   dotnet build SoftcurseBlackwatch.sln
    ```
 
-3. **Copy build output to WPF project:**
+3. **Run the application:**
    ```powershell
-   Copy-Item dist\* ..\Softcurse.UI\WebUI\ -Recurse -Force
-   ```
-
-4. **Run the application:**
-   ```powershell
-   cd ..
    dotnet run --project Softcurse.UI/Softcurse.UI.csproj
    ```
 
 ### Publishing
 
-Generate a standalone, self-contained executable:
+Generate tested v0.1.0 Early Alpha release artifacts, an SPDX SBOM, and checksums. Install Inno Setup 6.7.1 first, or pass `-SkipInstaller` to create only the portable archive:
 ```powershell
-dotnet publish Softcurse.UI/Softcurse.UI.csproj -c Release --self-contained -r win-x64 -o ./publish
+./build.ps1
 ```
+
+CI also creates GitHub artifact attestations for non-pull-request builds. Public GitHub Release publication and Authenticode signing remain intentionally disabled until a production code-signing certificate is provisioned.
 
 ## 📦 Installer
 
 The project includes a pre-configured **Inno Setup (.iss)** script for creating a professional Windows installer.
 
-- **`SoftcurseSentinel.iss`** — Configured with custom branding, admin privileges, and desktop shortcut.
-- Compile with [Inno Setup 6+](https://jrsoftware.org/isinfo.php) to generate `SoftcurseSentinelSetup.exe`.
+- **`SoftcurseBlackwatch.iss`** — Configured with custom branding, per-user least-privilege installation, and an optional desktop shortcut.
+- Compile with [Inno Setup 6+](https://jrsoftware.org/isinfo.php) to generate `SoftcurseBlackwatchSetup.exe`.
 
 ## 🔐 Architecture: C# ↔ React Bridge
 
@@ -113,10 +111,10 @@ Communication between the WPF backend and React frontend uses WebView2's message
 
 | Direction | Method | Example |
 |---|---|---|
-| **C# → JS** | `ExecuteScriptAsync()` | `window.updateSentinelData(json)` |
-| **JS → C#** | `postMessage()` | `chrome.webview.postMessage('scan')` |
+| **C# → JS** | `PostWebMessageAsJson()` | Versioned, typed snapshot envelopes |
+| **JS → C#** | `postMessage()` | Versioned, typed command envelopes |
 
-Commands: `minimize`, `maximize`, `close`, `dragstart`, `scan`, `purge`, `purge_confirmed`, `navigate:N`, `kill:PID`, `setting:key:value`, `whitelist:add|remove|browse:value`
+The bridge uses versioned structured messages. Web content may request `scan`, `purge`, process-kill, navigation, settings, whitelist, recovery, and window actions. Live response requests require an independent native confirmation and a short-lived, target-bound authorization before the cleaner mutates the system.
 
 ---
 Developed by **Beardicuss / Softcurse Inc.**

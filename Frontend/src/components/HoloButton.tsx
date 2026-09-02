@@ -1,4 +1,4 @@
-import React from 'react';
+import type { ReactNode } from 'react';
 interface HoloButtonProps {
   children: ReactNode;
   icon?: ReactNode;
@@ -12,8 +12,6 @@ export function HoloButton({
   onClick
 }: HoloButtonProps) {
   const isMagenta = variant === 'magenta';
-  const colorVar = isMagenta ? 'var(--magenta)' : 'var(--cyan)';
-  const colorRgba = isMagenta ? '255, 0, 255' : '0, 240, 255';
   return (
     <div className="holo-btn-wrapper">
       <button

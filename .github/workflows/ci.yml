@@ -1,0 +1,67 @@
+name: Blackwatch CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: blackwatch-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.400
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+          package-manager-cache: true
+
+      - name: Install pinned Inno Setup
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --no-progress --yes
+
+      - name: Build, test, and package
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Test installer lifecycle
+        shell: pwsh
+        run: ./tools/Test-InstallerLifecycle.ps1 -InstallerPath ./output/SoftcurseBlackwatchSetup.exe
+
+      - name: Attest release-candidate provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-path: output/*
+
+      - name: Upload release candidates
+        uses: actions/upload-artifact@v7
+        with:
+          name: softcurse-blackwatch-0.1.0-alpha-win-x64
+          path: output/*
+          if-no-files-found: error
+          retention-days: 14

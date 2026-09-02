@@ -8,14 +8,14 @@ using Softcurse.Shared.Models;
 namespace Softcurse.Service;
 
 /// <summary>
-/// Background service that runs Softcurse Sentinel monitoring loop.
+/// Background service that runs the Softcurse Blackwatch monitoring loop.
 /// Scans processes, scores threats, and logs findings.
 /// </summary>
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _msLogger;
-    private readonly SentinelLogger _logger;
-    private readonly SentinelConfig _config;
+    private readonly BlackwatchLogger _logger;
+    private readonly BlackwatchConfig _config;
     private readonly ProcessScanner _scanner;
     private readonly ThreatScorer _scorer;
     private readonly ProcessWatcher _processWatcher;
@@ -24,8 +24,8 @@ public class Worker : BackgroundService
     public Worker(ILogger<Worker> msLogger)
     {
         _msLogger = msLogger;
-        _config = SentinelConfig.Load();
-        _logger = new SentinelLogger();
+        _config = BlackwatchConfig.Load();
+        _logger = new BlackwatchLogger();
         _scanner = new ProcessScanner(_logger);
         _scorer = new ThreatScorer(_logger, _config);
         _processWatcher = new ProcessWatcher(_logger);
@@ -34,7 +34,7 @@ public class Worker : BackgroundService
 
     public override Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.Info("Service", "Softcurse Sentinel Service starting...");
+        _logger.Info("Service", "Softcurse Blackwatch Service starting...");
         _processWatcher.ProcessCreated += OnNewProcess;
         _processWatcher.Start();
         return base.StartAsync(cancellationToken);
@@ -63,7 +63,8 @@ public class Worker : BackgroundService
                 }
 
                 // Check network
-                var connections = _networkMonitor.GetConnections();
+                var processSnapshot = procs.ToDictionary(process => process.Pid);
+                var connections = _networkMonitor.GetConnections(processSnapshot);
                 var suspicious = connections.Where(c => c.IsSuspicious).ToList();
                 if (suspicious.Count > 0)
                 {
@@ -79,16 +80,27 @@ public class Worker : BackgroundService
                 _logger.Error("Service", $"Scan cycle failed: {ex.Message}");
             }
 
-            await Task.Delay(_config.ScanIntervalMs, stoppingToken);
+            try
+            {
+                await Task.Delay(_config.ScanIntervalMs, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
+
+        _logger.Info("Service", "Monitoring loop stopped");
     }
 
-    public override Task StopAsync(CancellationToken cancellationToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.Info("Service", "Softcurse Sentinel Service stopping...");
+        _logger.Info("Service", "Softcurse Blackwatch Service stopping...");
+        await base.StopAsync(cancellationToken);
+        _processWatcher.ProcessCreated -= OnNewProcess;
         _processWatcher.Dispose();
+        _networkMonitor.Dispose();
         _logger.Dispose();
-        return base.StopAsync(cancellationToken);
     }
 
     private void OnNewProcess(object? sender, ProcessCreatedEventArgs e)

@@ -1,8 +1,5 @@
 import { MinusIcon, SquareIcon, XIcon } from 'lucide-react';
-
-function sendCmd(cmd: string) {
-  try { (window as any).chrome?.webview?.postMessage(cmd); } catch { }
-}
+import { sendBridgeCommand } from '../bridge';
 
 export function TitleBar() {
   return (
@@ -11,7 +8,7 @@ export function TitleBar() {
       onMouseDown={(e) => {
         // Only drag on left-click, not on buttons
         if (e.button === 0 && (e.target as HTMLElement).closest('button') === null) {
-          sendCmd('dragstart');
+          sendBridgeCommand({ type: 'window', action: 'dragstart' });
         }
       }}
     >
@@ -25,26 +22,29 @@ export function TitleBar() {
           }} />
 
         <span className="text-[10px] tracking-widest text-[var(--text-dim)] font-['Share_Tech_Mono']">
-          SOFTCURSE SENTINEL
+          SOFTCURSE BLACKWATCH
+        </span>
+        <span className="text-[8px] tracking-[0.16em] text-[rgba(0,240,255,0.42)] font-['Share_Tech_Mono'] border-l border-[rgba(0,240,255,0.18)] pl-2">
+          CREATED BY SOFTCURSE
         </span>
       </div>
 
       {/* Right side - Window controls */}
       <div className="flex items-center gap-0">
         <button
-          onClick={() => sendCmd('minimize')}
+          onClick={() => sendBridgeCommand({ type: 'window', action: 'minimize' })}
           className="w-10 h-8 flex items-center justify-center text-[var(--text-dim)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
           aria-label="Minimize">
           <MinusIcon size={12} strokeWidth={1.5} />
         </button>
         <button
-          onClick={() => sendCmd('maximize')}
+          onClick={() => sendBridgeCommand({ type: 'window', action: 'maximize' })}
           className="w-10 h-8 flex items-center justify-center text-[var(--text-dim)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
           aria-label="Maximize">
           <SquareIcon size={10} strokeWidth={1.5} />
         </button>
         <button
-          onClick={() => sendCmd('close')}
+          onClick={() => sendBridgeCommand({ type: 'window', action: 'close' })}
           className="w-10 h-8 flex items-center justify-center text-[var(--text-dim)] hover:bg-red-600 hover:text-white transition-colors"
           aria-label="Close">
           <XIcon size={12} strokeWidth={1.5} />

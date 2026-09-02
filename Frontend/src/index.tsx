@@ -1,6 +1,15 @@
 import "./index.css";
-import React from "react";
-import { render } from "react-dom";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
 import { App } from "./App";
 
-render(<App />, document.getElementById("root"));
+const rootElement = document.getElementById("root");
+if (!rootElement) {
+  throw new Error("Blackwatch UI root element was not found.");
+}
+
+createRoot(rootElement).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);

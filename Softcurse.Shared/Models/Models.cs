@@ -1,8 +1,35 @@
 namespace Softcurse.Shared.Models;
 
 // ═══════════════════════════════════════════════════
-// Softcurse Sentinel — Shared Data Models
+// Softcurse Blackwatch — Shared Data Models
 // ═══════════════════════════════════════════════════
+
+public enum TelemetryHealthLevel
+{
+    Healthy,
+    Degraded,
+    Error
+}
+
+public sealed record TelemetryHealth(TelemetryHealthLevel Level, string Message)
+{
+    public static TelemetryHealth Healthy(string message = "All enabled collectors are operational.") =>
+        new(TelemetryHealthLevel.Healthy, message);
+
+    public static TelemetryHealth Degraded(string message) => new(TelemetryHealthLevel.Degraded, message);
+    public static TelemetryHealth Error(string message) => new(TelemetryHealthLevel.Error, message);
+
+    public static TelemetryHealth Combine(params TelemetryHealth[] states)
+    {
+        if (states.Length == 0) return Error("No telemetry health reports were available.");
+        var level = states.Max(state => state.Level);
+        var issues = states.Where(state => state.Level != TelemetryHealthLevel.Healthy)
+            .Select(state => state.Message).Where(message => !string.IsNullOrWhiteSpace(message)).Distinct().ToList();
+        return issues.Count == 0
+            ? Healthy()
+            : new TelemetryHealth(level, string.Join(" ", issues));
+    }
+}
 
 /// <summary>
 /// Full metadata about a running process.
@@ -22,6 +49,9 @@ public class ProcessInfo
     public DateTime StartTime { get; set; }
     public string FileHash { get; set; } = string.Empty;  // SHA256
     public bool? IsSigned { get; set; }  // Authenticode: true=signed, false=unsigned, null=unknown
+    public string PublisherThumbprint { get; set; } = string.Empty;
+    public string ProductName { get; set; } = string.Empty;
+    public string CompanyName { get; set; } = string.Empty;
     public ThreatScore Score { get; set; } = new();
 }
 
@@ -40,10 +70,13 @@ public class ThreatScore
         _ => ThreatLevel.Safe
     };
     public List<ThreatSignal> Signals { get; set; } = new();
+    public DetectionConfidence Confidence { get; set; } = DetectionConfidence.None;
+    public string Explanation { get; set; } = "No suspicious evidence observed.";
+    public string RuleSetVersion { get; set; } = string.Empty;
     public string RecommendedAction => Level switch
     {
-        ThreatLevel.Critical => "AUTO-TERMINATE",
-        ThreatLevel.High => "QUARANTINE",
+        ThreatLevel.Critical => "REVIEW IMMEDIATELY",
+        ThreatLevel.High => "REVIEW EVIDENCE",
         ThreatLevel.Suspicious => "MONITOR",
         ThreatLevel.Low => "LOG",
         _ => "NONE"
@@ -55,10 +88,22 @@ public class ThreatScore
 /// </summary>
 public class ThreatSignal
 {
+    public string EvidenceId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string ObservedValue { get; set; } = string.Empty;
     public int Weight { get; set; }
     public SignalCategory Category { get; set; }
+    public DetectionConfidence Confidence { get; set; }
+    public string RuleVersion { get; set; } = string.Empty;
+}
+
+public enum DetectionConfidence
+{
+    None,
+    Low,
+    Medium,
+    High
 }
 
 /// <summary>
@@ -77,14 +122,36 @@ public class ThreatReport
 /// </summary>
 public class ConnectionInfo
 {
+    public string ConnectionId { get; set; } = string.Empty;
     public int Pid { get; set; }
+    public string Protocol { get; set; } = "TCP";
+    public string AddressFamily { get; set; } = "IPv4";
     public string ProcessName { get; set; } = string.Empty;
+    public string ProcessFileHash { get; set; } = string.Empty;
+    public bool? ProcessIsSigned { get; set; }
+    public string ProcessPublisherThumbprint { get; set; } = string.Empty;
+    public string ProcessCompanyName { get; set; } = string.Empty;
     public string LocalEndpoint { get; set; } = string.Empty;
     public string RemoteEndpoint { get; set; } = string.Empty;
+    public string RemoteHostName { get; set; } = string.Empty;
     public int RemotePort { get; set; }
     public string State { get; set; } = string.Empty;
     public bool IsSuspicious { get; set; }
     public string SuspiciousReason { get; set; } = string.Empty;
+    public DetectionConfidence Confidence { get; set; } = DetectionConfidence.None;
+    public List<NetworkEvidence> Evidence { get; set; } = new();
+    public DateTime FirstSeenUtc { get; set; }
+    public DateTime LastSeenUtc { get; set; }
+    public int ObservationCount { get; set; }
+}
+
+public sealed class NetworkEvidence
+{
+    public string RuleId { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string ObservedValue { get; set; } = string.Empty;
+    public DetectionConfidence Confidence { get; set; }
+    public string SourceEvidenceId { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -106,7 +173,10 @@ public class SystemSnapshot
 /// </summary>
 public class CleanerAction
 {
+    public string ActionId { get; set; } = Guid.NewGuid().ToString("N");
     public DateTime Timestamp { get; set; } = DateTime.Now;
+    public DateTime? CompletedUtc { get; set; }
+    public CleanerActionStatus Status { get; set; } = CleanerActionStatus.Prepared;
     public CleanerActionType ActionType { get; set; }
     public int TargetPid { get; set; }
     public string TargetName { get; set; } = string.Empty;
@@ -120,7 +190,7 @@ public class CleanerAction
 }
 
 /// <summary>
-/// A log entry from the Sentinel logger.
+/// A log entry from the Blackwatch logger.
 /// </summary>
 public class LogEntry
 {
@@ -160,7 +230,16 @@ public enum CleanerActionType
     KillProcess,
     DisableAutorun,
     QuarantineFile,
-    RemoveStartupEntry
+    RemoveStartupEntry,
+    RestoreQuarantine
+}
+
+public enum CleanerActionStatus
+{
+    Prepared,
+    Completed,
+    Failed,
+    RecoveryRequired
 }
 
 public enum LogLevel

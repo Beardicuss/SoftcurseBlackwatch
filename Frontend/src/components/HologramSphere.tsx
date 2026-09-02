@@ -9,10 +9,10 @@ export function HologramSphere({ threatActive }: HologramSphereProps) {
 
   useEffect(() => {
     // Listen for global threat state updates
-    (window as any).updateThreatState = (active: boolean) => {
+    window.updateThreatState = (active: boolean) => {
       setHasThreats(active);
     };
-    return () => { delete (window as any).updateThreatState; };
+    return () => { delete window.updateThreatState; };
   }, []);
 
   const isAlert = threatActive || hasThreats;

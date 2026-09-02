@@ -2,13 +2,13 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
-var srcPath = args.Length > 0 ? args[0] : @"Softcurse.UI\Assets\logo-Photoroom.png";
+var srcPath = args.Length > 0 ? args[0] : @"Softcurse.UI\Assets\blackwatch-logo.png";
 var dstPath = args.Length > 1 ? args[1] : @"Softcurse.UI\Assets\app.ico";
 
 Console.WriteLine($"Converting {srcPath} -> {dstPath}");
 
 using var src = new Bitmap(srcPath);
-var sizes = new[] { 16, 32, 48, 256 };
+var sizes = new[] { 16, 20, 24, 32, 40, 48, 64, 128, 256 };
 
 using var ms = new MemoryStream();
 using var bw = new BinaryWriter(ms);

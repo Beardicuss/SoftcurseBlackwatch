@@ -1,4 +1,3 @@
-import React from 'react';
 export function CircuitBackground() {
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -7,7 +6,7 @@ export function CircuitBackground() {
         className="absolute inset-0"
         style={{
           backgroundImage:
-          'url(https://cdn.magicpatterns.com/uploads/5e9xJYyhk3xe2Re3JLnEcY/background.png)',
+          'url(./background.png)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat'
@@ -19,7 +18,7 @@ export function CircuitBackground() {
         className="absolute inset-0"
         style={{
           backgroundImage:
-          'url(https://cdn.magicpatterns.com/uploads/nYboC99AseE7DLWYxi98in/overlay.png)',
+          'url(./overlay.png)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat',
@@ -34,7 +33,7 @@ export function CircuitBackground() {
         style={{
           height: '45%',
           backgroundImage:
-          'url(https://cdn.magicpatterns.com/uploads/cFBNZVXVY45Pzsi7xVBa6j/cables.png)',
+          'url(./cables.png)',
           backgroundSize: 'contain',
           backgroundPosition: 'bottom left',
           backgroundRepeat: 'no-repeat',

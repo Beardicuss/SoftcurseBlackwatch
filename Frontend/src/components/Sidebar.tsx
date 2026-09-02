@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
 import { HologramSphere } from './HologramSphere';
 
@@ -61,6 +61,14 @@ const SettingsIcon = () => (
   </svg>
 );
 
+const FaqIcon = () => (
+  <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="14" cy="14" r="12" />
+    <path d="M9.8 10.2A4.4 4.4 0 0114 7.5c2.5 0 4.5 1.6 4.5 3.8 0 3.3-4.5 3.3-4.5 6.1" />
+    <circle cx="14" cy="21.5" r="1" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 // ── HUD Ring Wrapper ──────────────────────────────────────────
 interface HudIconProps {
   icon: React.ReactNode;
@@ -70,7 +78,7 @@ interface HudIconProps {
 const HudIcon: React.FC<HudIconProps> = ({ icon, active }) => {
   const cyan = active ? '#00f0ff' : 'rgba(0,190,210,0.4)';
   return (
-    <div className="relative flex-shrink-0" style={{ width: 44, height: 44 }}>
+    <div className="relative flex-shrink-0" style={{ width: 38, height: 38 }}>
       {/* Outer dashed ring - rotates */}
       <div style={{
         position: 'absolute', inset: 0, borderRadius: '50%',
@@ -88,13 +96,13 @@ const HudIcon: React.FC<HudIconProps> = ({ icon, active }) => {
       }} />
       {/* Mid ring - counter-rotates */}
       <div style={{
-        position: 'absolute', inset: 6, borderRadius: '50%',
+        position: 'absolute', inset: 5, borderRadius: '50%',
         border: `1px solid ${active ? 'rgba(0,240,255,0.28)' : 'rgba(0,180,200,0.1)'}`,
         animation: `hudSpinRev ${active ? '9s' : '20s'} linear infinite`,
       }} />
       {/* Dot on mid ring */}
       <div style={{
-        position: 'absolute', top: 5, left: '50%',
+        position: 'absolute', top: 4, left: '50%',
         width: active ? 3 : 2, height: active ? 3 : 2,
         borderRadius: '50%', background: cyan,
         transform: 'translateX(-50%)',
@@ -102,7 +110,7 @@ const HudIcon: React.FC<HudIconProps> = ({ icon, active }) => {
       }} />
       {/* Inner circle face */}
       <div style={{
-        position: 'absolute', inset: 11, borderRadius: '50%',
+        position: 'absolute', inset: 9, borderRadius: '50%',
         background: active
           ? 'radial-gradient(circle at 35% 35%, #0a2a40, #060b18)'
           : 'radial-gradient(circle at 35% 35%, #081620, #060b18)',
@@ -117,7 +125,7 @@ const HudIcon: React.FC<HudIconProps> = ({ icon, active }) => {
           color: active ? '#00f0ff' : 'rgba(0,150,170,0.5)',
           filter: active ? 'drop-shadow(0 0 4px #00f0ff) drop-shadow(0 0 10px rgba(0,240,255,0.5))' : 'none',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transform: 'scale(0.52)',
+          transform: 'scale(0.46)',
         }}>
           {icon}
         </div>
@@ -134,6 +142,7 @@ const navItems = [
   { id: 'network', label: 'NETWORK', icon: <NetworkIcon /> },
   { id: 'logs', label: 'LOGS', icon: <LogsIcon /> },
   { id: 'settings', label: 'SETTINGS', icon: <SettingsIcon /> },
+  { id: 'faq', label: 'FAQ / ABOUT', icon: <FaqIcon /> },
 ];
 
 // ── Sidebar ───────────────────────────────────────────────────
@@ -143,11 +152,12 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeView, onNavigate }: SidebarProps) {
-  const [statusText, setStatusText] = useState('SYSTEM SECURE — NO THREATS DETECTED');
+  const [statusText, setStatusText] = useState('INITIALIZING MONITORING...');
+  const navButtons = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
-    (window as any).updateSidebarStatus = (text: string) => setStatusText(text);
-    return () => { delete (window as any).updateSidebarStatus; };
+    window.updateSidebarStatus = (text: string) => setStatusText(text);
+    return () => { delete window.updateSidebarStatus; };
   }, []);
 
   return (
@@ -164,21 +174,41 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
       <div className="absolute inset-0 bg-[var(--bg-dark)] opacity-70" />
 
       {/* Logo */}
-      <div className="relative z-10 px-5 py-5 border-b border-[rgba(0,240,255,0.15)]">
-        <h1 className="font-['Orbitron'] text-xl font-bold text-[var(--cyan)] text-glow-cyan tracking-wider">SOFTCURSE</h1>
-        <p className="font-['Orbitron'] text-[10px] tracking-[0.35em] text-[var(--text-dim)] mt-0.5">SENTINEL</p>
+      <div className="relative z-10 px-4 py-3 border-b border-[rgba(0,240,255,0.15)]">
+        <img
+          src="./blackwatch-logo.png"
+          alt="Softcurse Blackwatch"
+          className="w-full h-[82px] object-contain drop-shadow-[0_0_10px_rgba(0,240,255,0.35)]"
+        />
+        <p className="-mt-1 text-center text-[8px] tracking-[0.2em] text-[rgba(0,240,255,0.55)] font-['Share_Tech_Mono']">
+          A SOFTCURSE CREATION · v0.1.0 EARLY ALPHA
+        </p>
       </div>
 
       {/* Nav */}
-      <nav className="relative z-10 flex-1 py-2">
+      <nav className="relative z-10 flex-1 py-2" aria-label="Blackwatch sections">
         <ul className="space-y-0.5">
           {navItems.map((item, index) => {
             const isActive = index === activeView;
             return (
               <li key={item.id}>
                 <button
+                  ref={(element) => { navButtons.current[index] = element; }}
                   onClick={() => onNavigate(index)}
-                  className={`w-full flex items-center gap-3 px-4 py-2 text-xs tracking-wider transition-all relative
+                  onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+                    const last = navItems.length - 1;
+                    const target = event.key === 'ArrowDown' ? (index + 1) % navItems.length
+                      : event.key === 'ArrowUp' ? (index - 1 + navItems.length) % navItems.length
+                      : event.key === 'Home' ? 0
+                      : event.key === 'End' ? last
+                      : null;
+                    if (target === null) return;
+                    event.preventDefault();
+                    navButtons.current[target]?.focus();
+                    onNavigate(target);
+                  }}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`w-full flex items-center gap-3 px-4 py-1 text-xs tracking-wider transition-all relative
                     ${isActive
                       ? 'text-[var(--cyan)] bg-[rgba(0,240,255,0.08)]'
                       : 'text-[var(--text-dim)] hover:text-[rgba(0,220,240,0.65)] hover:bg-[rgba(0,240,255,0.03)]'}`}
@@ -202,14 +232,14 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
       </nav>
 
       {/* Globe */}
-      <div className="relative z-10 p-2">
-        <div className="relative w-full aspect-square max-w-[180px] mx-auto overflow-hidden">
+      <div className="relative z-10 p-1">
+        <div className="relative w-full aspect-square max-w-[150px] mx-auto overflow-hidden">
           <HologramSphere />
         </div>
       </div>
 
       {/* Cables */}
-      <div className="relative z-10 h-16 overflow-hidden">
+      <div className="relative z-10 h-8 overflow-hidden">
         <div className="absolute inset-0" style={{
           backgroundImage: 'url(./cables.png)',
           backgroundSize: 'cover', backgroundPosition: 'bottom center',

@@ -2,22 +2,19 @@ import { useState, useEffect } from 'react';
 import { ScanIcon, Trash2Icon } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { HoloButton } from './HoloButton';
-
-function sendCmd(cmd: string) {
-  try { (window as any).chrome?.webview?.postMessage(cmd); } catch { }
-}
+import { sendBridgeCommand } from '../bridge';
 
 export function StatusBar() {
-  const [statusText, setStatusText] = useState('SYSTEM SECURE — NO THREATS DETECTED');
+  const [statusText, setStatusText] = useState('INITIALIZING MONITORING...');
   const [isScanning, setIsScanning] = useState(false);
 
   useEffect(() => {
     // Listen for status updates from Dashboard bridge
-    (window as any).updateStatusBar = (text: string, scanning: boolean) => {
+    window.updateStatusBar = (text: string, scanning: boolean) => {
       setStatusText(text);
       setIsScanning(scanning);
     };
-    return () => { delete (window as any).updateStatusBar; };
+    return () => { delete window.updateStatusBar; };
   }, []);
 
   return (
@@ -65,10 +62,10 @@ export function StatusBar() {
 
       {/* Action buttons */}
       <div className="flex items-center gap-3 relative z-10">
-        <HoloButton variant="cyan" icon={<ScanIcon size={14} />} onClick={() => sendCmd('scan')}>
+        <HoloButton variant="cyan" icon={<ScanIcon size={14} />} onClick={() => sendBridgeCommand({ type: 'app', action: 'scan' })}>
           SCAN NOW
         </HoloButton>
-        <HoloButton variant="magenta" icon={<Trash2Icon size={14} />} onClick={() => sendCmd('purge')}>
+        <HoloButton variant="magenta" icon={<Trash2Icon size={14} />} onClick={() => sendBridgeCommand({ type: 'app', action: 'purge' })}>
           PURGE
         </HoloButton>
       </div>

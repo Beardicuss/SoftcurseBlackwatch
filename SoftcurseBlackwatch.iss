@@ -1,25 +1,34 @@
-; Softcurse Sentinel — Inno Setup Script
+; Softcurse Blackwatch — Inno Setup Script
 
-#define MyAppName "Softcurse Sentinel"
-#define MyAppVersion "2.0"
+#define MyAppName "Softcurse Blackwatch"
+#define MyAppVersion "0.1.0-alpha"
 #define MyAppPublisher "Softcurse Inc."
-#define MyAppExeName "Softcurse.UI.exe"
+#define MyAppExeName "Softcurse.Blackwatch.exe"
 
 [Setup]
 AppId={{7010568A-8183-410E-9E54-C9388DBE65F5}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\{#MyAppName}
+VersionInfoVersion=0.1.0.0
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription={#MyAppName} Installer
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}
+DefaultDirName={localappdata}\Programs\{#MyAppName}
+UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-; Setup wizard icon — full logo with text
-SetupIconFile=D:\Projects\Softcurse Anticheat\SoftcurseSentinel\publish\setup.ico
+; Setup wizard icon — authoritative Blackwatch identity
+SetupIconFile=Softcurse.UI\Assets\app.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
-PrivilegesRequired=admin
-OutputDir=D:\Projects\Softcurse Anticheat\SoftcurseSentinel\output
-OutputBaseFilename=SoftcurseSentinelSetup
+PrivilegesRequired=lowest
+UsePreviousAppDir=yes
+CloseApplications=yes
+RestartApplications=no
+OutputDir=output
+OutputBaseFilename=SoftcurseBlackwatchSetup
 SolidCompression=yes
 WizardStyle=modern
 
@@ -32,7 +41,7 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "D:\Projects\Softcurse Anticheat\SoftcurseSentinel\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"

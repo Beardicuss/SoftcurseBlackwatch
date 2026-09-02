@@ -11,6 +11,7 @@ using Softcurse.Monitor;
 using Softcurse.Shared.Config;
 using Softcurse.Shared.Logging;
 using Softcurse.Shared.Models;
+using Softcurse.Shared.Security;
 
 namespace Softcurse.UI.ViewModels;
 
@@ -22,24 +23,23 @@ namespace Softcurse.UI.ViewModels;
 public class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     // ── Services ──
-    private readonly SentinelLogger _logger;
-    private readonly SentinelConfig _config;
+    private readonly BlackwatchLogger _logger;
+    private readonly BlackwatchConfig _config;
     private readonly ProcessScanner _scanner;
     private readonly ThreatScorer _scorer;
     private readonly SystemMonitor _systemMonitor;
     private readonly ProcessWatcher _processWatcher;
     private readonly NetworkMonitor _networkMonitor;
-    private readonly SentinelCleaner _cleaner;
+    private readonly BlackwatchCleaner _cleaner;
     private readonly Dispatcher _dispatcher;
 
-    // ── Timers ──
-    private readonly DispatcherTimer _monitorTimer;
-    private readonly DispatcherTimer _scanTimer;
-    private readonly DispatcherTimer _logTimer;
-
-    // ── Scan guard ──
-    private volatile bool _scanRunning;
-    private int _lastLogCount;
+    // ── Work guards / lifetime ──
+    private readonly SemaphoreSlim _scanGate = new(1, 1);
+    private readonly SemaphoreSlim _monitorGate = new(1, 1);
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly List<Task> _recurringTasks = new();
+    private DateTime _lastLogTimestamp = DateTime.MinValue;
+    private bool _disposed;
 
     // ── Observable Collections ──
     public ObservableCollection<ProcessInfo> Processes { get; } = new();
@@ -98,7 +98,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool DryRunMode
     {
         get => _dryRunMode;
-        set { _dryRunMode = value; _config.DryRunMode = value; _config.Save(); OnPropertyChanged(); }
+        set { _dryRunMode = value; _config.DryRunMode = value; SaveConfig(); OnPropertyChanged(); }
     }
 
     // ── Scan State (for animations) ──
@@ -111,6 +111,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private string _statusText = "INITIALIZING...";
     public string StatusText { get => _statusText; set { _statusText = value; OnPropertyChanged(); } }
 
+    private TelemetryHealthLevel _healthLevel = TelemetryHealthLevel.Error;
+    public TelemetryHealthLevel HealthLevel { get => _healthLevel; private set { _healthLevel = value; OnPropertyChanged(); } }
+
+    private string _healthMessage = "Telemetry has not completed yet.";
+    public string HealthMessage { get => _healthMessage; private set { _healthMessage = value; OnPropertyChanged(); } }
+
+    private DateTime? _lastSuccessfulScanUtc;
+    public DateTime? LastSuccessfulScanUtc { get => _lastSuccessfulScanUtc; private set { _lastSuccessfulScanUtc = value; OnPropertyChanged(); } }
+
     // ── Navigation ──
     private int _activeView;
     public int ActiveView { get => _activeView; set { _activeView = value; OnPropertyChanged(); } }
@@ -120,40 +129,40 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool MinimizeToTray
     {
         get => _minimizeToTray;
-        set { _minimizeToTray = value; _config.MinimizeToTray = value; _config.Save(); OnPropertyChanged(); }
+        set { _minimizeToTray = value; _config.MinimizeToTray = value; SaveConfig(); OnPropertyChanged(); }
     }
 
     public ObservableCollection<string> WhitelistItems { get; } = new();
-
-    private string _whitelistInput = string.Empty;
-    public string WhitelistInput { get => _whitelistInput; set { _whitelistInput = value; OnPropertyChanged(); } }
+    public IReadOnlyList<TrustedApplication> TrustedApplications => _config.TrustedApplications;
 
     public bool WhitelistEmpty => WhitelistItems.Count == 0;
 
     public int CpuSpikeThreshold => _config.CpuSpikeThresholdPercent;
     public int CpuSpikeDuration => _config.CpuSpikeDurationSeconds;
+    public IReadOnlyList<CleanerAction> RecoveryActions => _cleaner.RecoveryRequiredActions;
 
     // ── Commands (MVVM) ──
     public ICommand NavigateCommand { get; }
     public ICommand ScanNowCommand { get; }
     public ICommand KillProcessCommand { get; }
-    public ICommand AddWhitelistCommand { get; }
     public ICommand RemoveWhitelistCommand { get; }
-    public ICommand BrowseWhitelistCommand { get; }
 
     public MainViewModel()
     {
         _dispatcher = Dispatcher.CurrentDispatcher;
 
         // Init services
-        _config = SentinelConfig.Load();
-        _logger = new SentinelLogger();
+        _config = BlackwatchConfig.Load();
+        _logger = new BlackwatchLogger();
         _scanner = new ProcessScanner(_logger);
         _scorer = new ThreatScorer(_logger, _config);
         _systemMonitor = new SystemMonitor(_logger);
         _processWatcher = new ProcessWatcher(_logger);
         _networkMonitor = new NetworkMonitor(_logger);
-        _cleaner = new SentinelCleaner(_logger, _config);
+        _cleaner = new BlackwatchCleaner(_logger, _config);
+
+        if (BlackwatchConfig.LastPersistenceError is { } configError)
+            _logger.Warning("Config", configError);
 
         _dryRunMode = _config.DryRunMode;
         _minimizeToTray = _config.MinimizeToTray;
@@ -166,9 +175,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateCommand = new RelayCommand<int>(idx => ActiveView = idx);
         ScanNowCommand = new RelayCommand(_ => _ = RunFullScanAsync());
         KillProcessCommand = new RelayCommand<int>(pid => ExecuteKill(pid));
-        AddWhitelistCommand = new RelayCommand(_ => ExecuteAddWhitelist());
         RemoveWhitelistCommand = new RelayCommand<string>(name => ExecuteRemoveWhitelist(name));
-        BrowseWhitelistCommand = new RelayCommand(_ => ExecuteBrowseWhitelist());
 
         // Init history with zeros
         for (int i = 0; i < 60; i++)
@@ -177,43 +184,57 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             RamHistory.Add(0);
         }
 
-        // Monitor timer (2s) — CPU/RAM on background thread
-        _monitorTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _monitorTimer.Tick += (_, _) => _ = OnMonitorTickAsync();
-        _monitorTimer.Start();
-
-        // Scan timer (5s) — Processes + Threats on background thread
-        _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-        _scanTimer.Tick += (_, _) => _ = RunFullScanAsync();
-        _scanTimer.Start();
-
-        // Log refresh timer (3s) — incremental update
-        _logTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        _logTimer.Tick += OnLogTick;
-        _logTimer.Start();
+        _recurringTasks.Add(RunPeriodicAsync(TimeSpan.FromSeconds(2), OnMonitorTickAsync));
+        _recurringTasks.Add(RunPeriodicAsync(TimeSpan.FromSeconds(5), RunFullScanAsync));
+        _recurringTasks.Add(RunPeriodicAsync(TimeSpan.FromSeconds(3), RefreshLogsAsync));
 
         // Start WMI process watcher
         _processWatcher.ProcessCreated += OnNewProcessCreated;
         _processWatcher.Start();
 
-        _logger.Info("Sentinel", "Softcurse Sentinel initialized");
-        StatusText = "SYSTEM SECURE — NO THREATS DETECTED";
+        _logger.Info("Blackwatch", "Softcurse Blackwatch initialized");
+        StatusText = "INITIALIZING MONITORING...";
+        _ = RunFullScanAsync();
     }
 
     // ═══════════════════════════════════════════════
-    // Timer Callbacks — async, off UI thread
+    // Lifetime-bound recurring work
     // ═══════════════════════════════════════════════
+
+    private async Task RunPeriodicAsync(TimeSpan interval, Func<Task> callback)
+    {
+        using var timer = new PeriodicTimer(interval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false))
+                await _dispatcher.InvokeAsync(callback).Task.Unwrap().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _logger.Error("Lifecycle", $"Recurring task stopped unexpectedly: {ex.Message}");
+        }
+    }
 
     private async Task OnMonitorTickAsync()
     {
+        if (!await _monitorGate.WaitAsync(0)) return;
         try
         {
-            var snapshot = await Task.Run(() => _systemMonitor.GetSnapshot());
+            var snapshot = await Task.Run(() => _systemMonitor.GetSnapshot(_lifetime.Token), _lifetime.Token);
 
             CpuUsage = snapshot.CpuUsagePercent;
             RamUsage = snapshot.MemoryUsagePercent;
             RamUsedMB = snapshot.MemoryUsedMB;
             RamTotalMB = snapshot.MemoryTotalMB;
+            var previousHealth = HealthLevel;
+            ApplyOverallHealth();
+            if (previousHealth != HealthLevel && !IsScanning)
+            {
+                StatusText = HealthLevel == TelemetryHealthLevel.Healthy
+                    ? ThreatCount > 0 ? $"⚠ {ThreatCount} SUSPICIOUS ITEMS DETECTED" : "NO SUSPICIOUS ACTIVITY DETECTED BY BLACKWATCH"
+                    : $"⚠ MONITORING {HealthLevel.ToString().ToUpperInvariant()} — RESULTS MAY BE INCOMPLETE";
+            }
 
             CpuHistory.Add(snapshot.CpuUsagePercent);
             if (CpuHistory.Count > 60) CpuHistory.RemoveAt(0);
@@ -224,26 +245,39 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(CpuHistory));
             OnPropertyChanged(nameof(RamHistory));
         }
-        catch { }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _logger.Warning("SystemMonitor", $"Monitor update failed: {ex.Message}");
+            ApplyHealth(TelemetryHealth.Error($"System telemetry failed: {ex.Message}"));
+        }
+        finally
+        {
+            _monitorGate.Release();
+        }
     }
 
-    private void OnLogTick(object? sender, EventArgs e)
+    private Task RefreshLogsAsync()
     {
         try
         {
             var entries = _logger.GetBuffer();
-            var newCount = entries.Count;
+            var newestTimestamp = entries.Count > 0 ? entries[^1].Timestamp : DateTime.MinValue;
 
-            if (newCount != _lastLogCount)
+            if (newestTimestamp != _lastLogTimestamp || entries.Count != Logs.Count)
             {
                 var reversed = entries.Reverse().ToList();
                 Logs.Clear();
                 foreach (var entry in reversed)
                     Logs.Add(entry);
-                _lastLogCount = newCount;
+                _lastLogTimestamp = newestTimestamp;
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.Warning("Logging", $"Log refresh failed: {ex.Message}");
+        }
+        return Task.CompletedTask;
     }
 
     // ═══════════════════════════════════════════════
@@ -253,8 +287,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task RunFullScanAsync()
     {
-        if (_scanRunning) return;
-        _scanRunning = true;
+        if (!await _scanGate.WaitAsync(0)) return;
         IsScanning = true;
         ScanButtonText = "⟳ SCANNING...";
 
@@ -262,34 +295,39 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             // Step 1: Enumerate
             StatusText = "ENUMERATING PROCESSES...";
-            var procs = await Task.Run(() => _scanner.ScanAll());
+            var procs = await Task.Run(() => _scanner.ScanAll(_lifetime.Token), _lifetime.Token);
 
             // Step 2: Analyze
             StatusText = "ANALYZING BEHAVIOR...";
-            await Task.Run(() => _scorer.ScoreAll(procs));
-            var reports = await Task.Run(() => _scorer.GenerateReports(procs, ThreatLevel.Low));
+            await Task.Run(() => _scorer.ScoreAll(procs, _lifetime.Token), _lifetime.Token);
+            var reports = await Task.Run(() => _scorer.GenerateReports(procs, ThreatLevel.Low, _lifetime.Token), _lifetime.Token);
 
             // Step 3: Network
             StatusText = "CORRELATING NETWORK ACTIVITY...";
-            var conns = await Task.Run(() => _networkMonitor.GetConnections());
+            var processSnapshot = procs.ToDictionary(process => process.Pid);
+            var conns = await Task.Run(() => _networkMonitor.GetConnections(processSnapshot, _lifetime.Token), _lifetime.Token);
 
             // Step 4: Update UI (incremental — avoids flicker)
             StatusText = "UPDATING RESULTS...";
 
             // Diff processes: update existing, add new, remove stale
-            var procByPid = procs.ToDictionary(p => p.Pid);
+            var procByPid = procs
+                .GroupBy(p => p.Pid)
+                .ToDictionary(group => group.Key, group => group.First());
             for (int i = Processes.Count - 1; i >= 0; i--)
             {
                 if (!procByPid.ContainsKey(Processes[i].Pid))
                     Processes.RemoveAt(i);
             }
-            var existingPids = new HashSet<int>(Processes.Select(p => p.Pid));
-            foreach (var p in procs)
+            for (int i = 0; i < Processes.Count; i++)
             {
-                if (!existingPids.Contains(p.Pid))
-                    Processes.Add(p);
+                if (procByPid.TryGetValue(Processes[i].Pid, out var fresh))
+                    Processes[i] = fresh;
             }
-            ProcessCount = procs.Count;
+            var existingPids = new HashSet<int>(Processes.Select(p => p.Pid));
+            foreach (var p in procByPid.Values)
+                if (existingPids.Add(p.Pid)) Processes.Add(p);
+            ProcessCount = procByPid.Count;
 
             // Diff threats
             Threats.Clear();
@@ -304,19 +342,28 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             ConnectionCount = conns.Count;
             SuspiciousConnectionCount = conns.Count(c => c.IsSuspicious);
 
+            var scanHealth = TelemetryHealth.Combine(_scanner.LastHealth, _networkMonitor.LastHealth, _systemMonitor.LastHealth);
+            ApplyHealth(scanHealth);
+            if (scanHealth.Level == TelemetryHealthLevel.Healthy)
+                LastSuccessfulScanUtc = DateTime.UtcNow;
+
             // Final status
-            StatusText = ThreatCount > 0
+            StatusText = scanHealth.Level != TelemetryHealthLevel.Healthy
+                ? $"⚠ MONITORING {scanHealth.Level.ToString().ToUpperInvariant()} — RESULTS MAY BE INCOMPLETE"
+                : ThreatCount > 0
                 ? $"⚠ {ThreatCount} THREATS DETECTED"
-                : "SYSTEM SECURE — NO THREATS DETECTED";
+                : "NO SUSPICIOUS ACTIVITY DETECTED BY BLACKWATCH";
         }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            _logger.Error("Sentinel", $"Scan failed: {ex.Message}");
-            StatusText = "SCAN ERROR";
+            _logger.Error("Blackwatch", $"Scan failed: {ex.Message}");
+            ApplyHealth(TelemetryHealth.Error($"Scan failed: {ex.Message}"));
+            StatusText = "SCAN ERROR — PREVIOUS RESULTS MAY BE STALE";
         }
         finally
         {
-            _scanRunning = false;
+            _scanGate.Release();
             IsScanning = false;
             ScanButtonText = "● SCAN NOW";
         }
@@ -331,48 +378,49 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         var proc = Processes.FirstOrDefault(p => p.Pid == pid);
         if (proc == null) return;
 
-        var result = _cleaner.KillProcess(pid, proc.Name, DryRunMode);
+        if (!DryRunMode)
+        {
+            _logger.Warning("CleanerConsent", $"Live kill request for PID {pid} requires explicit confirmation.");
+            StatusText = "CONFIRMATION REQUIRED FOR LIVE ACTION";
+            return;
+        }
+
+        var result = _cleaner.KillProcess(pid, proc.Name, proc.StartTime, dryRun: DryRunMode);
         if (result.Success)
             _ = RunFullScanAsync();
+    }
+
+    private void ApplyHealth(TelemetryHealth health)
+    {
+        HealthLevel = health.Level;
+        HealthMessage = health.Message;
+    }
+
+    private void ApplyOverallHealth() => ApplyHealth(TelemetryHealth.Combine(
+        _scanner.LastHealth,
+        _networkMonitor.LastHealth,
+        _systemMonitor.LastHealth));
+
+    public ProcessInfo? GetProcessForConfirmation(int pid) => Processes.FirstOrDefault(process => process.Pid == pid);
+    public int PurgeTargetCount => Threats.Count(threat => threat.Score.Level >= ThreatLevel.High);
+
+    public void ExecuteKillConfirmed(int pid)
+    {
+        var process = GetProcessForConfirmation(pid);
+        if (process is null) return;
+        var authorization = DryRunMode ? null : _cleaner.AuthorizeProcessKill(process.Pid, process.Name, process.StartTime);
+        var result = _cleaner.KillProcess(process.Pid, process.Name, process.StartTime, dryRun: DryRunMode, authorization);
+        StatusText = result.Success ? "RESPONSE ACTION COMPLETED" : "RESPONSE ACTION REJECTED";
+        if (result.Success) _ = RunFullScanAsync();
     }
 
     private void OnNewProcessCreated(object? sender, ProcessCreatedEventArgs e)
     {
         _logger.Info("ProcessWatcher", $"New process: {e.ProcessName} (PID {e.Pid})");
-
-        // Instant threat scoring for new processes (closes the 5-second gap)
-        Task.Run(() =>
-        {
-            try
-            {
-                var proc = System.Diagnostics.Process.GetProcessById(e.Pid);
-                var info = new ProcessInfo
-                {
-                    Pid = e.Pid,
-                    Name = e.ProcessName,
-                };
-                try { info.FilePath = proc.MainModule?.FileName ?? string.Empty; } catch { }
-                try { info.MemoryMB = proc.WorkingSet64 / (1024.0 * 1024.0); } catch { }
-                try { info.HasWindow = proc.MainWindowHandle != IntPtr.Zero; } catch { }
-                proc.Dispose();
-
-                _scorer.Score(info);
-
-                if (info.Score.Level >= ThreatLevel.Suspicious)
-                {
-                    _dispatcher.Invoke(() =>
-                    {
-                        Threats.Add(new ThreatReport { Process = info, Score = info.Score });
-                        ThreatCount = Threats.Count(t => t.Score.Level >= ThreatLevel.Suspicious);
-                        StatusText = $"⚠ NEW THREAT: {info.Name} (Score {info.Score.Total})";
-                    });
-                }
-            }
-            catch { /* process already exited */ }
-        });
+        _ = RunFullScanAsync();
     }
 
-    /// <summary>Execute purge without MessageBox (called from JS confirm dialog)</summary>
+    /// <summary>Executes a purge only after the native window has collected explicit consent.</summary>
     public void ExecutePurgeForced()
     {
         var criticals = Threats
@@ -383,41 +431,36 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         foreach (var threat in criticals)
         {
-            _cleaner.KillProcess(threat.Process.Pid, threat.Process.Name, DryRunMode);
+            var authorization = DryRunMode ? null : _cleaner.AuthorizeProcessKill(
+                threat.Process.Pid,
+                threat.Process.Name,
+                threat.Process.StartTime);
+            _cleaner.KillProcess(
+                threat.Process.Pid,
+                threat.Process.Name,
+                threat.Process.StartTime,
+                dryRun: DryRunMode,
+                authorization);
         }
 
-        _logger.Threat("Sentinel", $"Purge executed: {criticals.Count} threats targeted");
+        _logger.Threat("Blackwatch", $"Purge executed: {criticals.Count} threats targeted");
         _ = RunFullScanAsync();
     }
     // ═══════════════════════════════════════════════
     // Whitelist Management
     // ═══════════════════════════════════════════════
 
-    private void ExecuteAddWhitelist()
-    {
-        var entry = WhitelistInput?.Trim();
-        if (string.IsNullOrEmpty(entry)) return;
-        if (WhitelistItems.Contains(entry, StringComparer.OrdinalIgnoreCase)) return;
-
-        WhitelistItems.Add(entry);
-        _config.Whitelist = WhitelistItems.ToList();
-        _config.Save();
-        WhitelistInput = string.Empty;
-        OnPropertyChanged(nameof(WhitelistEmpty));
-        _logger.Info("Settings", $"Added to whitelist: {entry}");
-    }
-
     private void ExecuteRemoveWhitelist(string name)
     {
         if (string.IsNullOrEmpty(name)) return;
         WhitelistItems.Remove(name);
         _config.Whitelist = WhitelistItems.ToList();
-        _config.Save();
+        SaveConfig();
         OnPropertyChanged(nameof(WhitelistEmpty));
         _logger.Info("Settings", $"Removed from whitelist: {name}");
     }
 
-    private void ExecuteBrowseWhitelist()
+    public void BrowseTrustedApplication()
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
@@ -428,17 +471,56 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         if (dialog.ShowDialog() == true)
         {
-            var processName = System.IO.Path.GetFileNameWithoutExtension(dialog.FileName);
-            if (!string.IsNullOrEmpty(processName) &&
-                !WhitelistItems.Contains(processName, StringComparer.OrdinalIgnoreCase))
+            try
             {
-                WhitelistItems.Add(processName);
-                _config.Whitelist = WhitelistItems.ToList();
-                _config.Save();
-                OnPropertyChanged(nameof(WhitelistEmpty));
-                _logger.Info("Settings", $"Added to whitelist via browse: {processName}");
+                var identity = TrustedApplicationIdentity.Inspect(dialog.FileName);
+                if (_config.TrustedApplications.Any(item =>
+                        item.Sha256.Equals(identity.Sha256, StringComparison.OrdinalIgnoreCase) &&
+                        item.CanonicalPath.Equals(identity.CanonicalPath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    StatusText = "APPLICATION IS ALREADY TRUSTED";
+                    return;
+                }
+                var publisher = string.IsNullOrWhiteSpace(identity.PublisherThumbprint)
+                    ? "Unsigned"
+                    : $"{identity.CompanyName} ({identity.PublisherThumbprint[..Math.Min(16, identity.PublisherThumbprint.Length)]}…)";
+                var confirmation = System.Windows.MessageBox.Show(
+                    $"Trust this exact executable identity?\n\n" +
+                    $"Name: {identity.Name}\nPath: {identity.CanonicalPath}\n" +
+                    $"SHA-256: {identity.Sha256}\nPublisher: {publisher}\n\n" +
+                    "If the file changes, the exception will stop matching automatically.",
+                    "Confirm Trusted Application",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning,
+                    MessageBoxResult.No);
+                if (confirmation != MessageBoxResult.Yes) return;
+
+                _config.TrustedApplications.Add(identity);
+                SaveConfig();
+                OnPropertyChanged(nameof(TrustedApplications));
+                _logger.Info("Settings", $"Added trusted executable identity: {identity.Name} ({identity.Sha256[..16]}…)");
+                StatusText = "TRUSTED APPLICATION ADDED";
+                _ = RunFullScanAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("Settings", $"Could not inspect trusted executable: {ex.Message}");
+                StatusText = "TRUSTED APPLICATION COULD NOT BE ADDED";
             }
         }
+    }
+
+    public void RemoveTrustedApplication(string trustId)
+    {
+        var item = _config.TrustedApplications.FirstOrDefault(rule =>
+            rule.TrustId.Equals(trustId, StringComparison.Ordinal));
+        if (item is null) return;
+        _config.TrustedApplications.Remove(item);
+        SaveConfig();
+        OnPropertyChanged(nameof(TrustedApplications));
+        _logger.Info("Settings", $"Removed trusted executable identity: {item.Name} ({item.Sha256[..Math.Min(16, item.Sha256.Length)]}…)");
+        StatusText = "TRUSTED APPLICATION REMOVED";
+        _ = RunFullScanAsync();
     }
 
     // ═══════════════════════════════════════════════
@@ -449,14 +531,89 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
+    public void LoggerWarning(string source, string message) => _logger.Warning(source, message);
+    public void LoggerInfo(string source, string message) => _logger.Info(source, message);
+
+    public void ExportDiagnosticBundle()
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Export Redacted Blackwatch Diagnostics",
+            Filter = "ZIP archive (*.zip)|*.zip",
+            FileName = $"Blackwatch-Diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip",
+            AddExtension = true,
+            DefaultExt = ".zip",
+            OverwritePrompt = true
+        };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            _logger.Flush();
+            DiagnosticBundleExporter.Export(dialog.FileName, _logger.LogDirectory, new DiagnosticSummary(
+                typeof(MainViewModel).Assembly
+                    .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                    .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                    .FirstOrDefault()?.InformationalVersion ?? "0.1.0-alpha",
+                HealthLevel.ToString(), HealthMessage, LastSuccessfulScanUtc, DryRunMode,
+                ProcessCount, ThreatCount, ConnectionCount));
+            _logger.Info("Diagnostics", "Exported a redacted diagnostic bundle to a user-selected location.");
+            StatusText = "REDACTED DIAGNOSTIC BUNDLE EXPORTED";
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Diagnostics", $"Diagnostic export failed: {ex.Message}");
+            StatusText = "DIAGNOSTIC EXPORT FAILED";
+        }
+    }
+
+    private void SaveConfig()
+    {
+        if (!_config.Save())
+        {
+            var error = BlackwatchConfig.LastPersistenceError ?? "Unknown configuration error";
+            _logger.Error("Config", error);
+            StatusText = "SETTINGS COULD NOT BE SAVED";
+        }
+    }
+
+    public CleanerAction? GetRecoveryForConfirmation(string actionId) =>
+        RecoveryActions.FirstOrDefault(item => item.ActionId.Equals(actionId, StringComparison.Ordinal));
+
+    public void ExecuteRecoveryActionConfirmed(string action, string actionId)
+    {
+        if (!Enum.TryParse<RecoveryActionKind>(action, ignoreCase: true, out var kind))
+        {
+            StatusText = "RECOVERY ACTION REJECTED";
+            return;
+        }
+        var authorization = _cleaner.AuthorizeRecovery(actionId, kind);
+        if (authorization is null)
+        {
+            StatusText = "RECOVERY ACTION IS STALE";
+            return;
+        }
+        var success = kind switch
+        {
+            RecoveryActionKind.Restore => _cleaner.RestoreRecovery(actionId, authorization),
+            RecoveryActionKind.Finalize => _cleaner.ResolveRecovery(actionId, completed: true, "User confirmed the interrupted mutation completed.", kind, authorization),
+            RecoveryActionKind.Dismiss => _cleaner.ResolveRecovery(actionId, completed: false, "User confirmed the interrupted mutation did not complete or requires no further action.", kind, authorization),
+            _ => false
+        };
+        StatusText = success ? "RECOVERY JOURNAL UPDATED" : "RECOVERY ACTION FAILED";
+        OnPropertyChanged(nameof(RecoveryActions));
+    }
+
     public void Dispose()
     {
-        _monitorTimer.Stop();
-        _scanTimer.Stop();
-        _logTimer.Stop();
+        if (_disposed) return;
+        _disposed = true;
+        _lifetime.Cancel();
+        _processWatcher.ProcessCreated -= OnNewProcessCreated;
         _processWatcher.Dispose();
         _systemMonitor.Dispose();
+        _networkMonitor.Dispose();
         _logger.Dispose();
+        _lifetime.Dispose();
         GC.SuppressFinalize(this);
     }
 }

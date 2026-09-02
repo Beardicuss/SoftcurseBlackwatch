@@ -12,10 +12,11 @@ namespace Softcurse.Monitor;
 public class SystemMonitor : IDisposable
 {
     private readonly PerformanceCounter _cpuCounter;
-    private readonly SentinelLogger _logger;
+    private readonly BlackwatchLogger _logger;
     private readonly object _historyLock = new();
     private readonly List<SystemSnapshot> _history = new();
     private readonly int _maxHistory;
+    public TelemetryHealth LastHealth { get; private set; } = TelemetryHealth.Error("System telemetry has not completed yet.");
 
     public IReadOnlyList<SystemSnapshot> History
     {
@@ -25,7 +26,7 @@ public class SystemMonitor : IDisposable
         }
     }
 
-    public SystemMonitor(SentinelLogger logger, int maxHistorySize = 120)
+    public SystemMonitor(BlackwatchLogger logger, int maxHistorySize = 120)
     {
         _logger = logger;
         _maxHistory = maxHistorySize;
@@ -36,8 +37,9 @@ public class SystemMonitor : IDisposable
     /// <summary>
     /// Takes a snapshot of current system resource usage. Thread-safe.
     /// </summary>
-    public SystemSnapshot GetSnapshot()
+    public SystemSnapshot GetSnapshot(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var cpuUsage = _cpuCounter.NextValue();
         float totalMemMB = 0, usedMemMB = 0;
 
@@ -47,14 +49,20 @@ public class SystemMonitor : IDisposable
                 "SELECT TotalVisibleMemorySize, FreePhysicalMemory FROM Win32_OperatingSystem");
             foreach (var obj in searcher.Get())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var totalKB = Convert.ToSingle(obj["TotalVisibleMemorySize"]);
                 var freeKB = Convert.ToSingle(obj["FreePhysicalMemory"]);
                 totalMemMB = totalKB / 1024f;
                 usedMemMB = (totalKB - freeKB) / 1024f;
             }
+            LastHealth = totalMemMB > 0
+                ? TelemetryHealth.Healthy("System telemetry is operational.")
+                : TelemetryHealth.Degraded("Memory telemetry returned no operating-system data.");
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
+            LastHealth = TelemetryHealth.Degraded($"Memory telemetry is unavailable: {ex.Message}");
             _logger.Warning("SystemMonitor", $"WMI memory query failed: {ex.Message}");
         }
 

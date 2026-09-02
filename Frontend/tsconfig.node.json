@@ -5,7 +5,9 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
-    "strict": true
+    "strict": true,
+    "outDir": "./node_modules/.cache/blackwatch-tsc/node",
+    "tsBuildInfoFile": "./node_modules/.cache/blackwatch-tsc/node.tsbuildinfo"
   },
   "include": ["vite.config.ts"]
 }

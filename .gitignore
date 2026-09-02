@@ -57,6 +57,9 @@ output/
 Frontend/node_modules/
 Frontend/dist/
 Frontend/.vite/
+Frontend/*.tsbuildinfo
+Frontend/vite.config.js
+Frontend/vite.config.d.ts
 
 # WebUI build output (regenerated from Frontend/dist)
 Softcurse.UI/WebUI/

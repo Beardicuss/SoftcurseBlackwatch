@@ -6,7 +6,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 
-var srcPath = args.Length > 0 ? args[0] : @"Softcurse.UI\Assets\logo-Photoroom.png";
+var srcPath = args.Length > 0 ? args[0] : @"Softcurse.UI\Assets\blackwatch-logo.png";
 var dstPath = args.Length > 1 ? args[1] : @"Softcurse.UI\Assets\app.ico";
 
 Console.WriteLine($"Source: {srcPath}");

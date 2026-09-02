@@ -1,31 +1,48 @@
 using System.Collections.Concurrent;
 using Softcurse.Shared.Models;
+using Softcurse.Shared.Security;
 
 namespace Softcurse.Shared.Logging;
 
 /// <summary>
-/// Central logger for Softcurse Sentinel.
+/// Central logger for Softcurse Blackwatch.
 /// Uses buffered StreamWriter for efficient file I/O.
 /// Thread-safe.
 /// </summary>
-public class SentinelLogger : IDisposable
+public class BlackwatchLogger : IDisposable
 {
+    private static int _instanceSequence;
     private readonly string _logDirectory;
+    private readonly string _sessionId;
     private readonly ConcurrentQueue<LogEntry> _buffer = new();
     private readonly int _maxBufferSize;
+    private readonly TimeSpan _maxLogAge;
+    private readonly long _maxTotalLogBytes;
+    private readonly long _maxFileBytes;
     private readonly object _fileLock = new();
     private StreamWriter? _writer;
     private string _currentLogDate;
     private bool _disposed;
     private readonly Timer _flushTimer;
+    public string LogDirectory => _logDirectory;
 
-    public SentinelLogger(string? logDirectory = null, int maxBufferSize = 500)
+    public BlackwatchLogger(
+        string? logDirectory = null,
+        int maxBufferSize = 500,
+        TimeSpan? maxLogAge = null,
+        long maxTotalLogBytes = 20 * 1024 * 1024,
+        long maxFileBytes = 5 * 1024 * 1024)
     {
         _maxBufferSize = maxBufferSize;
+        _maxLogAge = maxLogAge ?? TimeSpan.FromDays(14);
+        _maxTotalLogBytes = maxTotalLogBytes;
+        _maxFileBytes = maxFileBytes;
+        _sessionId = $"{Environment.ProcessId}_{Interlocked.Increment(ref _instanceSequence):D3}";
         _logDirectory = logDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SoftcurseSentinel", "Logs");
-        Directory.CreateDirectory(_logDirectory);
+            "SoftcurseBlackwatch", "Logs");
+        ProtectedLocalStorage.EnsurePrivateDirectory(_logDirectory);
+        LogRetentionPolicy.Apply(_logDirectory, _maxLogAge, _maxTotalLogBytes, DateTime.UtcNow);
         _currentLogDate = DateTime.Now.ToString("yyyy-MM-dd");
         OpenWriter();
 
@@ -39,8 +56,8 @@ public class SentinelLogger : IDisposable
         {
             Timestamp = DateTime.Now,
             Level = level,
-            Source = source,
-            Message = message
+            Source = LogRedactor.Redact(source),
+            Message = LogRedactor.Redact(message)
         };
 
         // Buffer for UI
@@ -70,10 +87,24 @@ public class SentinelLogger : IDisposable
     public IReadOnlyList<LogEntry> GetBuffer(LogLevel minLevel)
         => _buffer.Where(e => e.Level >= minLevel).ToArray();
 
+    public void Flush() => FlushWriter();
+
     private void OpenWriter()
     {
-        var logFilePath = Path.Combine(_logDirectory, $"sentinel_{_currentLogDate}.log");
+        var logFilePath = SelectWritableLogPath();
         _writer = new StreamWriter(logFilePath, append: true) { AutoFlush = false };
+        ProtectedLocalStorage.EnsurePrivateFile(logFilePath);
+    }
+
+    private string SelectWritableLogPath()
+    {
+        for (var index = 0; index < 10_000; index++)
+        {
+            var suffix = index == 0 ? string.Empty : $"_{index:D3}";
+            var candidate = Path.Combine(_logDirectory, $"blackwatch_{_currentLogDate}_{_sessionId}{suffix}.log");
+            if (!File.Exists(candidate) || new FileInfo(candidate).Length < _maxFileBytes) return candidate;
+        }
+        throw new IOException("Blackwatch log rotation exhausted the daily file sequence.");
     }
 
     private void WriteToFile(LogEntry entry)
@@ -91,6 +122,13 @@ public class SentinelLogger : IDisposable
                     _writer?.Flush();
                     _writer?.Dispose();
                     _currentLogDate = today;
+                    LogRetentionPolicy.Apply(_logDirectory, _maxLogAge, _maxTotalLogBytes, DateTime.UtcNow);
+                    OpenWriter();
+                }
+                else if (_writer?.BaseStream.Length >= _maxFileBytes)
+                {
+                    _writer.Flush();
+                    _writer.Dispose();
                     OpenWriter();
                 }
                 _writer?.WriteLine(line);

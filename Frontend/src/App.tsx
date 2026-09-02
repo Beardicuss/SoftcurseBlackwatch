@@ -7,19 +7,23 @@ import { ProcessesPage } from './pages/ProcessesPage';
 import { NetworkPage } from './pages/NetworkPage';
 import { LogsPage } from './pages/LogsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { FaqPage } from './pages/FaqPage';
 import { useState, useEffect } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
+import { installSnapshotBridge, sendBridgeCommand } from './bridge';
 
 export function App() {
   const [activeView, setActiveView] = useState(0);
 
   useEffect(() => {
     // C# pushes activeView updates
-    (window as any).setActiveView = (viewId: number) => {
+    window.setActiveView = (viewId: number) => {
       setActiveView(viewId);
     };
-    return () => { delete (window as any).setActiveView; };
+    return () => { delete window.setActiveView; };
   }, []);
+
+  useEffect(() => installSnapshotBridge(), []);
 
   const views = [
     <Dashboard key="dash" />,
@@ -28,9 +32,11 @@ export function App() {
     <NetworkPage key="network" />,
     <LogsPage key="logs" />,
     <SettingsPage key="settings" />,
+    <FaqPage key="faq" />,
   ];
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="h-screen w-screen flex flex-col bg-[var(--bg-deep)] overflow-hidden relative">
       {/* Global background image */}
       <div
@@ -64,7 +70,7 @@ export function App() {
       <div className="flex-1 flex overflow-hidden relative z-10">
         <Sidebar activeView={activeView} onNavigate={(id) => {
           setActiveView(id);
-          try { (window as any).chrome?.webview?.postMessage(`navigate:${id}`); } catch { }
+          sendBridgeCommand({ type: 'navigate', viewId: id });
         }} />
 
         {/* Page content with transition animation */}
@@ -86,5 +92,6 @@ export function App() {
           <StatusBar />
         </div>
       </div>
-    </div>);
+    </div>
+    </MotionConfig>);
 }

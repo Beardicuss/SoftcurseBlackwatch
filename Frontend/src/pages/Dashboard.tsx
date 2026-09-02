@@ -5,7 +5,7 @@ import { StatCard } from '../components/StatCard';
 import { UsageChart } from '../components/UsageChart';
 
 // ── Bridge types ──
-interface SentinelData {
+interface BlackwatchData {
   cpu: number;
   ramUsedMB: number;
   ramPercent: number;
@@ -15,10 +15,13 @@ interface SentinelData {
   ramHistory: number[];
   statusText: string;
   isScanning: boolean;
+  healthLevel: 'Healthy' | 'Degraded' | 'Error';
+  healthMessage: string;
+  lastSuccessfulScanUtc: string | null;
 }
 
 // Default data shown before C# connects
-const defaultData: SentinelData = {
+const defaultData: BlackwatchData = {
   cpu: 0,
   ramUsedMB: 0,
   ramPercent: 0,
@@ -26,44 +29,50 @@ const defaultData: SentinelData = {
   threatCount: 0,
   cpuHistory: [],
   ramHistory: [],
-  statusText: 'SYSTEM SECURE — NO THREATS DETECTED',
+  statusText: 'INITIALIZING MONITORING...',
   isScanning: false,
+  healthLevel: 'Error',
+  healthMessage: 'Telemetry has not completed yet.',
+  lastSuccessfulScanUtc: null,
 };
 
+function getInitialData(): BlackwatchData {
+  const initialJson = window.__blackwatchData ?? window.__sentinelData;
+  if (!initialJson) return defaultData;
+
+  try {
+    return JSON.parse(initialJson) as BlackwatchData;
+  } catch {
+    return defaultData;
+  }
+}
+
 export function Dashboard() {
-  const [data, setData] = useState<SentinelData>(defaultData);
+  const [data, setData] = useState<BlackwatchData>(getInitialData);
 
   // C# calls this function to push data
   const handleUpdate = useCallback((json: string) => {
     try {
-      const parsed = JSON.parse(json) as SentinelData;
+      const parsed = JSON.parse(json) as BlackwatchData;
       setData(parsed);
       // Forward status to StatusBar
-      if ((window as any).updateStatusBar) {
-        (window as any).updateStatusBar(parsed.statusText, parsed.isScanning);
-      }
+      window.updateStatusBar?.(parsed.statusText, parsed.isScanning);
       // Forward threat state to HologramSphere
-      if ((window as any).updateThreatState) {
-        (window as any).updateThreatState(parsed.threatCount > 0);
-      }
+      window.updateThreatState?.(parsed.threatCount > 0);
       // Forward status to Sidebar
-      if ((window as any).updateSidebarStatus) {
-        (window as any).updateSidebarStatus(parsed.statusText);
-      }
+      window.updateSidebarStatus?.(parsed.statusText);
     } catch { /* ignore bad JSON */ }
   }, []);
 
   useEffect(() => {
     // Expose the update function globally so C# can call it
-    (window as any).updateSentinelData = handleUpdate;
-
-    // Also check if there's already data pushed before mount
-    if ((window as any).__sentinelData) {
-      handleUpdate((window as any).__sentinelData);
-    }
+    window.updateBlackwatchData = handleUpdate;
+    // One-release compatibility alias for older desktop shells.
+    window.updateSentinelData = handleUpdate;
 
     return () => {
-      delete (window as any).updateSentinelData;
+      delete window.updateBlackwatchData;
+      delete window.updateSentinelData;
     };
   }, [handleUpdate]);
 
@@ -102,6 +111,18 @@ export function Dashboard() {
             DASHBOARD
           </h2>
         </motion.div>
+
+        <div
+          role="status"
+          className={`mb-4 border px-3 py-2 text-xs font-['Share_Tech_Mono'] ${
+            data.healthLevel === 'Healthy'
+              ? 'border-[rgba(0,255,170,0.35)] text-[var(--green)] bg-[rgba(0,255,170,0.05)]'
+              : 'border-[rgba(255,170,0,0.45)] text-[#ffaa00] bg-[rgba(255,170,0,0.07)]'
+          }`}
+        >
+          TELEMETRY: {data.healthLevel.toUpperCase()} — {data.healthMessage}
+          {data.lastSuccessfulScanUtc && ` • Last complete cycle: ${new Date(data.lastSuccessfulScanUtc).toLocaleTimeString()}`}
+        </div>
 
         {/* Stat cards row */}
         <motion.div

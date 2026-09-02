@@ -13,18 +13,22 @@ namespace Softcurse.Core.Scanning;
 /// </summary>
 public class ProcessScanner
 {
-    private readonly SentinelLogger _logger;
+    private readonly BlackwatchLogger _logger;
     private readonly int _processorCount;
 
     // CPU tracking: stores previous snapshot for delta calculation
     private readonly Dictionary<int, CpuSnapshot> _cpuSnapshots = new();
 
-    // Hash cache: avoids re-hashing same file paths
-    private readonly Dictionary<string, (string Hash, bool Signed)> _hashCache = new(StringComparer.OrdinalIgnoreCase);
+    // Enrichment cache is keyed by path and invalidated by file metadata.
+    private readonly Dictionary<string, FileEnrichment> _hashCache = new(StringComparer.OrdinalIgnoreCase);
+    private const int MaxEnrichmentCacheEntries = 4096;
+    private string? _lastWmiError;
+    public TelemetryHealth LastHealth { get; private set; } = TelemetryHealth.Error("Process telemetry has not completed yet.");
 
     private record CpuSnapshot(TimeSpan TotalCpu, DateTime MeasuredAt);
+    private record FileEnrichment(long Length, DateTime LastWriteUtc, string Hash, bool? Signed, string PublisherThumbprint, string ProductName, string CompanyName);
 
-    public ProcessScanner(SentinelLogger logger)
+    public ProcessScanner(BlackwatchLogger logger)
     {
         _logger = logger;
         _processorCount = Environment.ProcessorCount;
@@ -33,14 +37,17 @@ public class ProcessScanner
     /// <summary>
     /// Full scan of all running processes with WMI enrichment.
     /// </summary>
-    public List<ProcessInfo> ScanAll()
+    public List<ProcessInfo> ScanAll(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var result = new List<ProcessInfo>();
-        var wmiData = GetWmiProcessData();
+        var wmiData = GetWmiProcessData(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         var processes = Process.GetProcesses();
 
         foreach (var proc in processes)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 var info = new ProcessInfo
@@ -58,19 +65,42 @@ public class ProcessScanner
                 {
                     try
                     {
-                        if (_hashCache.TryGetValue(info.FilePath, out var cached))
+                        var file = new FileInfo(info.FilePath);
+                        if (_hashCache.TryGetValue(info.FilePath, out var cached) &&
+                            cached.Length == file.Length &&
+                            cached.LastWriteUtc == file.LastWriteTimeUtc)
                         {
                             info.FileHash = cached.Hash;
                             info.IsSigned = cached.Signed;
+                            info.PublisherThumbprint = cached.PublisherThumbprint;
+                            info.ProductName = cached.ProductName;
+                            info.CompanyName = cached.CompanyName;
                         }
                         else
                         {
                             info.FileHash = ComputeSha256(info.FilePath);
-                            info.IsSigned = VerifySignature(info.FilePath);
-                            _hashCache[info.FilePath] = (info.FileHash, info.IsSigned ?? false);
+                            var signature = VerifySignature(info.FilePath);
+                            info.IsSigned = signature.IsSigned;
+                            info.PublisherThumbprint = signature.PublisherThumbprint;
+                            var version = FileVersionInfo.GetVersionInfo(info.FilePath);
+                            info.ProductName = version.ProductName ?? string.Empty;
+                            info.CompanyName = version.CompanyName ?? string.Empty;
+                            if (_hashCache.Count >= MaxEnrichmentCacheEntries)
+                                _hashCache.Clear();
+                            _hashCache[info.FilePath] = new FileEnrichment(
+                                file.Length,
+                                file.LastWriteTimeUtc,
+                                info.FileHash,
+                                info.IsSigned,
+                                info.PublisherThumbprint,
+                                info.ProductName,
+                                info.CompanyName);
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        _logger.Debug("ProcessScanner", $"Could not enrich {info.FilePath}: {ex.Message}");
+                    }
                 }
 
                 // Memory
@@ -133,47 +163,26 @@ public class ProcessScanner
             _cpuSnapshots.Remove(stale);
 
         _logger.Debug("ProcessScanner", $"Scanned {result.Count} processes");
+        LastHealth = _lastWmiError is null
+            ? TelemetryHealth.Healthy("Process telemetry is operational.")
+            : TelemetryHealth.Degraded($"Process metadata is incomplete: {_lastWmiError}");
         return result.OrderByDescending(p => p.MemoryMB).ToList();
-    }
-
-    /// <summary>
-    /// Kill a process by PID with safety checks.
-    /// </summary>
-    public (bool Success, string Message) KillProcess(int pid)
-    {
-        try
-        {
-            var proc = Process.GetProcessById(pid);
-            var name = proc.ProcessName;
-
-            // Safety: never kill critical system processes
-            if (IsProtectedProcess(name))
-                return (false, $"Refused to kill protected process: {name}");
-
-            proc.Kill(entireProcessTree: true);
-            proc.WaitForExit(5000);
-            _logger.Threat("ProcessScanner", $"Killed process {name} (PID {pid})");
-            return (true, $"Killed {name} (PID {pid})");
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("ProcessScanner", $"Failed to kill PID {pid}: {ex.Message}");
-            return (false, ex.Message);
-        }
     }
 
     /// <summary>
     /// Grabs CommandLine, ParentProcessId, and ExecutablePath from WMI for all processes.
     /// </summary>
-    private Dictionary<int, WmiProcessInfo> GetWmiProcessData()
+    private Dictionary<int, WmiProcessInfo> GetWmiProcessData(CancellationToken cancellationToken)
     {
         var dict = new Dictionary<int, WmiProcessInfo>();
+        _lastWmiError = null;
         try
         {
             using var searcher = new ManagementObjectSearcher(
                 "SELECT ProcessId, CommandLine, ParentProcessId, ExecutablePath FROM Win32_Process");
             foreach (var obj in searcher.Get())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var pid = Convert.ToInt32(obj["ProcessId"]);
                 var parentPid = Convert.ToInt32(obj["ParentProcessId"]);
                 string parentName = string.Empty;
@@ -194,19 +203,13 @@ public class ProcessScanner
                 };
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
+            _lastWmiError = ex.Message;
             _logger.Warning("ProcessScanner", $"WMI query failed: {ex.Message}");
         }
         return dict;
-    }
-
-    private static bool IsProtectedProcess(string name)
-    {
-        var lower = name.ToLowerInvariant();
-        return lower is "system" or "idle" or "csrss" or "wininit"
-            or "winlogon" or "services" or "lsass" or "smss"
-            or "registry" or "memorycompression";
     }
 
     private record WmiProcessInfo
@@ -226,18 +229,29 @@ public class ProcessScanner
     }
 
     // ── Authenticode Signature Check ──
-    private static bool VerifySignature(string filePath)
+    private static SignatureInfo VerifySignature(string filePath)
     {
         try
         {
 #pragma warning disable SYSLIB0057
-            var cert = X509Certificate2.CreateFromSignedFile(filePath);
+            using var certificate = X509Certificate2.CreateFromSignedFile(filePath);
 #pragma warning restore SYSLIB0057
-            return cert != null;
+            using var cert = new X509Certificate2(certificate);
+            return new SignatureInfo(true, cert.Thumbprint ?? string.Empty);
         }
-        catch
+        catch (CryptographicException)
         {
-            return false; // Not signed or invalid signature
+            return new SignatureInfo(false, string.Empty);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new SignatureInfo(null, string.Empty);
+        }
+        catch (IOException)
+        {
+            return new SignatureInfo(null, string.Empty);
         }
     }
+
+    private readonly record struct SignatureInfo(bool? IsSigned, string PublisherThumbprint);
 }

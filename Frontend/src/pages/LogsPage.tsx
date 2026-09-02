@@ -9,17 +9,23 @@ interface LogEntry {
 }
 
 export function LogsPage() {
+    const pageSize = 100;
     const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [page, setPage] = useState(0);
 
     useEffect(() => {
-        (window as any).updateLogs = (json: string) => {
+        window.updateLogs = (json: string) => {
             try {
                 const data = JSON.parse(json);
                 setLogs(data.items || []);
-            } catch { }
+            } catch (error) { console.error('Invalid logs payload', error); }
         };
-        return () => { delete (window as any).updateLogs; };
+        return () => { delete window.updateLogs; };
     }, []);
+
+    const pageCount = Math.max(1, Math.ceil(logs.length / pageSize));
+    const safePage = Math.min(page, pageCount - 1);
+    const visibleLogs = logs.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
     const levelColor = (level: string) => {
         switch (level?.toLowerCase()) {
@@ -46,6 +52,7 @@ export function LogsPage() {
 
             <div className="flex-1 overflow-auto">
                 <table className="w-full text-xs font-['Share_Tech_Mono']">
+                    <caption className="sr-only">Blackwatch diagnostic and security log entries</caption>
                     <thead>
                         <tr className="border-b border-[rgba(0,240,255,0.2)]">
                             <th className="text-left py-2 px-3 text-[var(--cyan)] font-normal tracking-wider w-[140px]">TIME</th>
@@ -57,8 +64,8 @@ export function LogsPage() {
                     <tbody>
                         {logs.length === 0 ? (
                             <tr><td colSpan={4} className="py-8 text-center text-[var(--text-dim)]">No logs yet</td></tr>
-                        ) : logs.map((log, i) => (
-                            <tr key={i} className="border-b border-[rgba(0,240,255,0.05)] hover:bg-[rgba(0,240,255,0.03)] transition-colors">
+                        ) : visibleLogs.map((log, i) => (
+                            <tr key={`${log.timestamp}-${log.source}-${safePage * pageSize + i}`} className="border-b border-[rgba(0,240,255,0.05)] hover:bg-[rgba(0,240,255,0.03)] transition-colors">
                                 <td className="py-1.5 px-3 text-[var(--text-dim)]">{log.timestamp}</td>
                                 <td className="py-1.5 px-3 font-bold" style={{ color: levelColor(log.level) }}>{log.level}</td>
                                 <td className="py-1.5 px-3 text-[var(--text-dim)]">{log.source}</td>
@@ -68,6 +75,13 @@ export function LogsPage() {
                     </tbody>
                 </table>
             </div>
+            {pageCount > 1 && (
+                <div className="flex items-center justify-end gap-3 pt-2 text-xs font-['Share_Tech_Mono']" aria-label="Log table pagination">
+                    <button type="button" disabled={safePage === 0} onClick={() => setPage(safePage - 1)} className="px-3 py-1 border border-[var(--cyan)] text-[var(--cyan)] disabled:opacity-40">PREVIOUS</button>
+                    <span aria-live="polite">PAGE {safePage + 1} / {pageCount}</span>
+                    <button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)} className="px-3 py-1 border border-[var(--cyan)] text-[var(--cyan)] disabled:opacity-40">NEXT</button>
+                </div>
+            )}
         </div>
     );
 }
